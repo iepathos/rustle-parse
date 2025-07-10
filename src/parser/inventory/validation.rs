@@ -327,9 +327,10 @@ impl InventoryValidator {
 
     /// Check if a string is a valid hostname or IP address
     fn is_valid_hostname_or_ip(address: &str) -> bool {
-        // Check for valid IP address (basic validation)
-        if VALID_IPV4.is_match(address) {
-            return true;
+        // If it looks like an IP address (4 parts separated by dots with all digits),
+        // validate it as an IP address only
+        if Self::looks_like_ipv4(address) {
+            return Self::is_valid_ipv4(address);
         }
 
         // Check for valid hostname
@@ -338,6 +339,36 @@ impl InventoryValidator {
         }
 
         false
+    }
+    
+    /// Check if a string looks like an IPv4 address (all numeric parts)
+    fn looks_like_ipv4(address: &str) -> bool {
+        let parts: Vec<&str> = address.split('.').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        
+        // All parts must be numeric
+        parts.iter().all(|part| part.chars().all(|c| c.is_ascii_digit()))
+    }
+    
+    /// Check if a string is a valid IPv4 address with proper range validation
+    fn is_valid_ipv4(address: &str) -> bool {
+        // Parse each octet and validate range (0-255)
+        let parts: Vec<&str> = address.split('.').collect();
+        if parts.len() != 4 {
+            return false;
+        }
+        
+        for part in parts {
+            // Check if the part is a valid number and in range 0-255
+            match part.parse::<u16>() {
+                Ok(octet) if octet <= 255 => continue,
+                _ => return false,
+            }
+        }
+        
+        true
     }
 
     /// Perform additional validation checks
@@ -437,9 +468,6 @@ static VALID_HOSTNAME: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$").unwrap()
 });
 
-static VALID_IPV4: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$").unwrap()
-});
 
 static VALID_USERNAME: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-z_]([a-z0-9_-]{0,31}|[a-z0-9_-]{0,30}\$)$").unwrap());

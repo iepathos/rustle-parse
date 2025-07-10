@@ -2,7 +2,6 @@ use crate::parser::error::ParseError;
 use crate::parser::inventory::patterns::HostPattern;
 use crate::parser::template::TemplateEngine;
 use crate::types::parsed::*;
-use configparser::ini::Ini;
 use std::collections::{HashMap, HashSet};
 
 /// Internal structure for parsing INI sections
@@ -83,21 +82,14 @@ impl<'a> IniInventoryParser<'a> {
 
     /// Parse INI inventory with complete feature support
     pub async fn parse_ini_inventory(&self, content: &str) -> Result<ParsedInventory, ParseError> {
-        let mut config = Ini::new();
-        config
-            .read(content.to_string())
-            .map_err(|e| ParseError::IniParsing {
-                message: format!("Failed to parse INI: {e}"),
-            })?;
-
         let mut inventory = ParsedInventory {
             hosts: HashMap::new(),
             groups: HashMap::new(),
             variables: self.extra_vars.clone(),
         };
 
-        // Parse all sections first
-        let sections = self.parse_ini_sections(&config)?;
+        // Parse all sections first using custom parser for Ansible format
+        let sections = self.parse_ansible_ini_sections(content)?;
 
         // Process each section type in order
         for section in &sections {
@@ -123,38 +115,119 @@ impl<'a> IniInventoryParser<'a> {
         Ok(inventory)
     }
 
-    /// Parse all INI sections into structured data
-    fn parse_ini_sections(&self, config: &Ini) -> Result<Vec<IniSection>, ParseError> {
+    /// Parse Ansible INI format with proper handling of host patterns and variables
+    fn parse_ansible_ini_sections(&self, content: &str) -> Result<Vec<IniSection>, ParseError> {
         let mut sections = Vec::new();
-
-        for section_name in config.sections() {
-            let section_type = self.determine_section_type(&section_name);
-            let mut entries = Vec::new();
-
-            if let Some(section_map) = config.get_map_ref().get(&section_name) {
-                for (key, value) in section_map {
-                    let variables = if section_type == SectionType::Hosts {
-                        self.parse_host_variables(value.as_deref().unwrap_or(""))?
-                    } else {
-                        HashMap::new()
-                    };
-
-                    entries.push(IniEntry {
-                        key: key.clone(),
-                        value: value.clone(),
-                        variables,
-                    });
+        let mut current_section: Option<IniSection> = None;
+        
+        for (line_num, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            
+            // Skip empty lines and comments
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
+                continue;
+            }
+            
+            // Check for section headers [section_name]
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                // Save previous section if exists
+                if let Some(section) = current_section.take() {
+                    sections.push(section);
+                }
+                
+                let section_name = trimmed[1..trimmed.len()-1].to_string();
+                let section_type = self.determine_section_type(&section_name);
+                
+                current_section = Some(IniSection {
+                    name: section_name,
+                    section_type,
+                    entries: Vec::new(),
+                });
+            } else if let Some(ref mut section) = current_section {
+                // Parse entry within a section
+                let entry = self.parse_ansible_ini_line(trimmed, &section.section_type, line_num)?;
+                section.entries.push(entry);
+            } else {
+                return Err(ParseError::IniParsing {
+                    message: format!("Entry outside of section at line {}: {}", line_num + 1, trimmed),
+                });
+            }
+        }
+        
+        // Add the last section
+        if let Some(section) = current_section {
+            sections.push(section);
+        }
+        
+        Ok(sections)
+    }
+    
+    /// Parse a single line within an Ansible INI section
+    fn parse_ansible_ini_line(
+        &self,
+        line: &str,
+        section_type: &SectionType,
+        _line_num: usize,
+    ) -> Result<IniEntry, ParseError> {
+        match section_type {
+            SectionType::Hosts => {
+                // For host sections, parse: hostname_or_pattern [variables]
+                // Example: web[01:03] ansible_user=deploy ansible_port=22
+                let (hostname, variables_str) = self.split_host_line(line);
+                let variables = self.parse_host_variables(&variables_str)?;
+                
+                Ok(IniEntry {
+                    key: hostname,
+                    value: if variables_str.is_empty() { None } else { Some(variables_str) },
+                    variables,
+                })
+            }
+            SectionType::GroupVars | SectionType::GroupChildren => {
+                // For vars and children sections, use standard key=value or just key
+                if let Some((key, value)) = line.split_once('=') {
+                    Ok(IniEntry {
+                        key: key.trim().to_string(),
+                        value: Some(value.trim().to_string()),
+                        variables: HashMap::new(),
+                    })
+                } else {
+                    Ok(IniEntry {
+                        key: line.trim().to_string(),
+                        value: None,
+                        variables: HashMap::new(),
+                    })
                 }
             }
-
-            sections.push(IniSection {
-                name: section_name,
-                section_type,
-                entries,
-            });
         }
-
-        Ok(sections)
+    }
+    
+    /// Split a host line into hostname/pattern and variables
+    /// Returns (hostname, variables_string)
+    fn split_host_line(&self, line: &str) -> (String, String) {
+        // Find the first space that's not inside brackets
+        let mut bracket_depth = 0;
+        let mut split_pos = None;
+        
+        for (i, ch) in line.char_indices() {
+            match ch {
+                '[' => bracket_depth += 1,
+                ']' => bracket_depth -= 1,
+                ' ' if bracket_depth == 0 => {
+                    split_pos = Some(i);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        
+        if let Some(pos) = split_pos {
+            let hostname = line[..pos].trim().to_string();
+            let variables = line[pos + 1..].trim().to_string();
+            (hostname, variables)
+        } else {
+            // No variables, just hostname/pattern
+            (line.trim().to_string(), String::new())
+        }
     }
 
     /// Determine the type of INI section

@@ -224,10 +224,17 @@ impl VariableInheritanceResolver {
             // Start with global inventory variables (lowest precedence)
             effective_vars.extend(inventory.variables.clone());
 
+            // Add variables from the "all" group (applies to all hosts)
+            if let Some(all_group) = inventory.groups.get("all") {
+                for (key, value) in &all_group.vars {
+                    effective_vars.insert(key.clone(), value.clone());
+                }
+            }
+
             // Add variables from all groups this host belongs to
             for group_name in &host.groups {
                 if let Some(group) = inventory.groups.get(group_name) {
-                    // Add group variables (override global variables)
+                    // Add group variables (override global and "all" group variables)
                     for (key, value) in &group.vars {
                         effective_vars.insert(key.clone(), value.clone());
                     }

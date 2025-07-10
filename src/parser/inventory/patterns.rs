@@ -41,7 +41,15 @@ impl HostPattern {
             return Ok(vec![self.pattern.clone()]);
         }
 
-        self.validate_pattern()?;
+        // Check for multiple bracket groups and handle them recursively
+        let bracket_count = self.pattern.matches('[').count();
+        if bracket_count > 1 {
+            // Validate the pattern first, even for multiple brackets
+            self.validate_pattern()?;
+            return self.expand_multiple_patterns();
+        }
+
+        self.validate_single_pattern()?;
 
         let mut hosts = Vec::new();
 
@@ -154,8 +162,179 @@ impl HostPattern {
         Ok(hosts)
     }
 
+    /// Expand patterns with multiple bracket groups like node[a:c]-[1:2]
+    fn expand_multiple_patterns(&self) -> Result<Vec<String>, ParseError> {
+        // Find all bracket patterns in the string
+        let bracket_regex = Regex::new(r"\[[^\]]+\]").unwrap();
+        let mut pattern_indices = Vec::new();
+
+        for mat in bracket_regex.find_iter(&self.pattern) {
+            pattern_indices.push((mat.start(), mat.end()));
+        }
+
+        if pattern_indices.is_empty() {
+            return Ok(vec![self.pattern.clone()]);
+        }
+
+        // Start with the base pattern and expand one bracket group at a time
+        let mut current_patterns = vec![self.pattern.clone()];
+
+        // Process from right to left to maintain correct indices
+        for (start, end) in pattern_indices.into_iter().rev() {
+            let mut new_patterns = Vec::new();
+
+            for current_pattern in current_patterns {
+                // Extract the bracket content
+                let bracket_content = &current_pattern[start + 1..end - 1];
+                let prefix = &current_pattern[..start];
+                let suffix = &current_pattern[end..];
+
+                // Determine the pattern type and expand
+                let expansions: Vec<String> = if bracket_content.contains(':') {
+                    if bracket_content
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || c == ':')
+                    {
+                        // Numeric pattern like [1:3]
+                        let parts: Vec<&str> = bracket_content.split(':').collect();
+                        if parts.len() == 2 {
+                            let start_num: i32 =
+                                parts[0]
+                                    .parse()
+                                    .map_err(|_| ParseError::InvalidHostPattern {
+                                        pattern: self.pattern.clone(),
+                                        line: 0,
+                                        message: format!(
+                                            "Invalid numeric pattern: {}",
+                                            bracket_content
+                                        ),
+                                    })?;
+                            let end_num: i32 =
+                                parts[1]
+                                    .parse()
+                                    .map_err(|_| ParseError::InvalidHostPattern {
+                                        pattern: self.pattern.clone(),
+                                        line: 0,
+                                        message: format!(
+                                            "Invalid numeric pattern: {}",
+                                            bracket_content
+                                        ),
+                                    })?;
+
+                            let zero_padded = parts[0].starts_with('0') && parts[0].len() > 1;
+                            let width = if zero_padded { parts[0].len() } else { 0 };
+
+                            (start_num..=end_num)
+                                .map(|i| {
+                                    if zero_padded {
+                                        format!("{i:0width$}")
+                                    } else {
+                                        i.to_string()
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            return Err(ParseError::InvalidHostPattern {
+                                pattern: self.pattern.clone(),
+                                line: 0,
+                                message: format!("Invalid numeric range: {}", bracket_content),
+                            });
+                        }
+                    } else {
+                        // Alphabetic pattern like [a:c]
+                        let parts: Vec<&str> = bracket_content.split(':').collect();
+                        if parts.len() == 2 && parts[0].len() == 1 && parts[1].len() == 1 {
+                            let start_char = parts[0].chars().next().unwrap();
+                            let end_char = parts[1].chars().next().unwrap();
+                            (start_char..=end_char).map(|c| c.to_string()).collect()
+                        } else {
+                            return Err(ParseError::InvalidHostPattern {
+                                pattern: self.pattern.clone(),
+                                line: 0,
+                                message: format!("Invalid alphabetic range: {}", bracket_content),
+                            });
+                        }
+                    }
+                } else {
+                    // List pattern like [red,blue,green]
+                    bracket_content
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect()
+                };
+
+                // Create new patterns with each expansion
+                for expansion in expansions {
+                    new_patterns.push(format!("{}{}{}", prefix, expansion, suffix));
+                }
+            }
+
+            current_patterns = new_patterns;
+        }
+
+        // Limit pattern expansion to prevent resource exhaustion
+        const MAX_HOSTS_PER_PATTERN: usize = 10000;
+        if current_patterns.len() > MAX_HOSTS_PER_PATTERN {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: format!(
+                    "Pattern expansion exceeds maximum limit of {MAX_HOSTS_PER_PATTERN} hosts"
+                ),
+            });
+        }
+
+        Ok(current_patterns)
+    }
+
     /// Validate pattern syntax before attempting expansion.
     fn validate_pattern(&self) -> Result<(), ParseError> {
+        // Check for balanced brackets
+        let open_brackets = self.pattern.matches('[').count();
+        let close_brackets = self.pattern.matches(']').count();
+
+        if open_brackets != close_brackets {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Unmatched brackets in host pattern".to_string(),
+            });
+        }
+
+        if open_brackets == 0 {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "No brackets found in pattern".to_string(),
+            });
+        }
+
+        // Check for empty brackets
+        if self.pattern.contains("[]") {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Empty brackets not allowed".to_string(),
+            });
+        }
+
+        // Only allow multiple brackets if they're separated by non-bracket characters
+        if open_brackets > 1 {
+            // Check if multiple brackets are adjacent (not allowed)
+            if self.pattern.contains("][") {
+                return Err(ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: "Adjacent bracket patterns not supported".to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Validate single pattern syntax (legacy validation for single patterns).
+    fn validate_single_pattern(&self) -> Result<(), ParseError> {
         // Check for balanced brackets
         let open_brackets = self.pattern.matches('[').count();
         let close_brackets = self.pattern.matches(']').count();
@@ -180,7 +359,7 @@ impl HostPattern {
             return Err(ParseError::InvalidHostPattern {
                 pattern: self.pattern.clone(),
                 line: 0,
-                message: "Nested or multiple brackets not supported".to_string(),
+                message: "Single pattern validation called on multi-pattern".to_string(),
             });
         }
 

@@ -315,9 +315,7 @@ impl InventoryValidator {
 
             if !VALID_USERNAME.is_match(user) {
                 return Err(ParseError::InvalidStructure {
-                    message: format!(
-                        "Host '{host_name}' has invalid username format: '{user}'"
-                    ),
+                    message: format!("Host '{host_name}' has invalid username format: '{user}'"),
                 });
             }
         }
@@ -327,6 +325,21 @@ impl InventoryValidator {
 
     /// Check if a string is a valid hostname or IP address
     fn is_valid_hostname_or_ip(address: &str) -> bool {
+        // Check for IP:port format first
+        if let Some((ip_part, port_part)) = address.split_once(':') {
+            // Validate IP part
+            let ip_valid = if Self::looks_like_ipv4(ip_part) {
+                Self::is_valid_ipv4(ip_part)
+            } else {
+                VALID_HOSTNAME.is_match(ip_part) && ip_part.len() <= 253
+            };
+
+            // Validate port part (1-65535)
+            let port_valid = port_part.parse::<u16>().map_or(false, |p| p > 0);
+
+            return ip_valid && port_valid;
+        }
+
         // If it looks like an IP address (4 parts separated by dots with all digits),
         // validate it as an IP address only
         if Self::looks_like_ipv4(address) {
@@ -340,18 +353,20 @@ impl InventoryValidator {
 
         false
     }
-    
+
     /// Check if a string looks like an IPv4 address (all numeric parts)
     fn looks_like_ipv4(address: &str) -> bool {
         let parts: Vec<&str> = address.split('.').collect();
         if parts.len() != 4 {
             return false;
         }
-        
+
         // All parts must be numeric
-        parts.iter().all(|part| part.chars().all(|c| c.is_ascii_digit()))
+        parts
+            .iter()
+            .all(|part| part.chars().all(|c| c.is_ascii_digit()))
     }
-    
+
     /// Check if a string is a valid IPv4 address with proper range validation
     fn is_valid_ipv4(address: &str) -> bool {
         // Parse each octet and validate range (0-255)
@@ -359,7 +374,7 @@ impl InventoryValidator {
         if parts.len() != 4 {
             return false;
         }
-        
+
         for part in parts {
             // Check if the part is a valid number and in range 0-255
             match part.parse::<u16>() {
@@ -367,7 +382,7 @@ impl InventoryValidator {
                 _ => return false,
             }
         }
-        
+
         true
     }
 
@@ -415,9 +430,7 @@ impl InventoryValidator {
         let used_vars = Self::collect_used_variable_names(inventory);
         for var_name in inventory.variables.keys() {
             if !used_vars.contains(var_name) {
-                warnings.push(format!(
-                    "Global variable '{var_name}' appears to be unused"
-                ));
+                warnings.push(format!("Global variable '{var_name}' appears to be unused"));
             }
         }
 
@@ -467,7 +480,6 @@ static VALID_VARIABLE_NAME: Lazy<Regex> =
 static VALID_HOSTNAME: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$").unwrap()
 });
-
 
 static VALID_USERNAME: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-z_]([a-z0-9_-]{0,31}|[a-z0-9_-]{0,30}\$)$").unwrap());

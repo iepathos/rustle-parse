@@ -203,22 +203,18 @@ async fn test_edge_cases() {
 
     // Test boolean values
     let host_with_bools = inventory.hosts.get("host1").unwrap();
-    assert!(
-        host_with_bools
-            .vars
-            .get("enabled")
-            .unwrap()
-            .as_bool()
-            .unwrap()
-    );
-    assert!(
-        !host_with_bools
-            .vars
-            .get("disabled")
-            .unwrap()
-            .as_bool()
-            .unwrap()
-    );
+    assert!(host_with_bools
+        .vars
+        .get("enabled")
+        .unwrap()
+        .as_bool()
+        .unwrap());
+    assert!(!host_with_bools
+        .vars
+        .get("disabled")
+        .unwrap()
+        .as_bool()
+        .unwrap());
 
     // Test numeric values
     assert_eq!(
@@ -272,7 +268,7 @@ localhost
 
     // Create a temporary file for this test
     use std::io::Write;
-    let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+    let mut temp_file = tempfile::Builder::new().suffix(".ini").tempfile().unwrap();
     temp_file.write_all(ini_content.as_bytes()).unwrap();
 
     let parser = create_test_parser();

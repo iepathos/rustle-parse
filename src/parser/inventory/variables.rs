@@ -4,7 +4,10 @@ use petgraph::{Direction, Graph};
 use std::collections::{HashMap, HashSet};
 
 /// Type alias for group dependency graph structure
-type GroupGraph = (Graph<String, ()>, HashMap<String, petgraph::graph::NodeIndex>);
+type GroupGraph = (
+    Graph<String, ()>,
+    HashMap<String, petgraph::graph::NodeIndex>,
+);
 
 /// Variable inheritance resolver for inventory
 pub struct VariableInheritanceResolver;

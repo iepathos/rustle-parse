@@ -11,19 +11,25 @@ async fn test_parse_ini_inventory() {
 
     let inventory = result.unwrap();
 
-    // Check hosts (our simplified implementation returns localhost)
-    assert!(inventory.hosts.contains_key("localhost"));
+    // Check hosts from the fixture
+    assert!(inventory.hosts.contains_key("web1"));
+    assert!(inventory.hosts.contains_key("web2"));
+    assert!(inventory.hosts.contains_key("db1"));
+    assert!(inventory.hosts.contains_key("db2"));
 
     // Check host details
-    let localhost = &inventory.hosts["localhost"];
-    assert_eq!(localhost.address, Some("127.0.0.1".to_string()));
-    assert_eq!(localhost.name, "localhost");
+    let web1 = &inventory.hosts["web1"];
+    assert_eq!(web1.address, Some("192.168.1.10".to_string()));
+    assert_eq!(web1.name, "web1");
 
     // Check groups
     assert!(inventory.groups.contains_key("all"));
 
     let all_group = &inventory.groups["all"];
-    assert!(all_group.hosts.contains(&"localhost".to_string()));
+    assert!(all_group.hosts.contains(&"web1".to_string()));
+    assert!(all_group.hosts.contains(&"web2".to_string()));
+    assert!(all_group.hosts.contains(&"db1".to_string()));
+    assert!(all_group.hosts.contains(&"db2".to_string()));
 }
 
 #[tokio::test]

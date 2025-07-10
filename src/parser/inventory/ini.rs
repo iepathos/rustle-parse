@@ -119,25 +119,25 @@ impl<'a> IniInventoryParser<'a> {
     fn parse_ansible_ini_sections(&self, content: &str) -> Result<Vec<IniSection>, ParseError> {
         let mut sections = Vec::new();
         let mut current_section: Option<IniSection> = None;
-        
+
         for (line_num, line) in content.lines().enumerate() {
             let trimmed = line.trim();
-            
+
             // Skip empty lines and comments
             if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') {
                 continue;
             }
-            
+
             // Check for section headers [section_name]
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 // Save previous section if exists
                 if let Some(section) = current_section.take() {
                     sections.push(section);
                 }
-                
-                let section_name = trimmed[1..trimmed.len()-1].to_string();
+
+                let section_name = trimmed[1..trimmed.len() - 1].to_string();
                 let section_type = self.determine_section_type(&section_name);
-                
+
                 current_section = Some(IniSection {
                     name: section_name,
                     section_type,
@@ -145,23 +145,28 @@ impl<'a> IniInventoryParser<'a> {
                 });
             } else if let Some(ref mut section) = current_section {
                 // Parse entry within a section
-                let entry = self.parse_ansible_ini_line(trimmed, &section.section_type, line_num)?;
+                let entry =
+                    self.parse_ansible_ini_line(trimmed, &section.section_type, line_num)?;
                 section.entries.push(entry);
             } else {
                 return Err(ParseError::IniParsing {
-                    message: format!("Entry outside of section at line {}: {}", line_num + 1, trimmed),
+                    message: format!(
+                        "Entry outside of section at line {}: {}",
+                        line_num + 1,
+                        trimmed
+                    ),
                 });
             }
         }
-        
+
         // Add the last section
         if let Some(section) = current_section {
             sections.push(section);
         }
-        
+
         Ok(sections)
     }
-    
+
     /// Parse a single line within an Ansible INI section
     fn parse_ansible_ini_line(
         &self,
@@ -175,10 +180,14 @@ impl<'a> IniInventoryParser<'a> {
                 // Example: web[01:03] ansible_user=deploy ansible_port=22
                 let (hostname, variables_str) = self.split_host_line(line);
                 let variables = self.parse_host_variables(&variables_str)?;
-                
+
                 Ok(IniEntry {
                     key: hostname,
-                    value: if variables_str.is_empty() { None } else { Some(variables_str) },
+                    value: if variables_str.is_empty() {
+                        None
+                    } else {
+                        Some(variables_str)
+                    },
                     variables,
                 })
             }
@@ -200,15 +209,22 @@ impl<'a> IniInventoryParser<'a> {
             }
         }
     }
-    
+
     /// Split a host line into hostname/pattern and variables
     /// Returns (hostname, variables_string)
     fn split_host_line(&self, line: &str) -> (String, String) {
+        // Remove comments first
+        let line_without_comments = if let Some(comment_pos) = line.find('#') {
+            &line[..comment_pos]
+        } else {
+            line
+        };
+
         // Find the first space that's not inside brackets
         let mut bracket_depth = 0;
         let mut split_pos = None;
-        
-        for (i, ch) in line.char_indices() {
+
+        for (i, ch) in line_without_comments.char_indices() {
             match ch {
                 '[' => bracket_depth += 1,
                 ']' => bracket_depth -= 1,
@@ -219,14 +235,14 @@ impl<'a> IniInventoryParser<'a> {
                 _ => {}
             }
         }
-        
+
         if let Some(pos) = split_pos {
-            let hostname = line[..pos].trim().to_string();
-            let variables = line[pos + 1..].trim().to_string();
+            let hostname = line_without_comments[..pos].trim().to_string();
+            let variables = line_without_comments[pos + 1..].trim().to_string();
             (hostname, variables)
         } else {
             // No variables, just hostname/pattern
-            (line.trim().to_string(), String::new())
+            (line_without_comments.trim().to_string(), String::new())
         }
     }
 
@@ -257,28 +273,58 @@ impl<'a> IniInventoryParser<'a> {
                 vec![entry.key.clone()]
             };
 
-            for hostname in hosts {
-                // Check for duplicate hosts
+            // Expand variable patterns if needed
+            let expanded_variables = if self.config.expand_patterns {
+                self.expand_variable_patterns(&entry.variables, hosts.len())?
+            } else {
+                vec![entry.variables.clone(); hosts.len()]
+            };
+
+            for (hostname, variables) in hosts.into_iter().zip(expanded_variables.into_iter()) {
+                // Check for duplicate hosts in strict mode
                 if inventory.hosts.contains_key(&hostname) && self.config.strict_mode {
                     return Err(ParseError::DuplicateHost { host: hostname });
                 }
 
-                let (address, port, user) = self.extract_connection_info(&entry.variables);
+                let (address, port, user) = self.extract_connection_info(&variables);
+                let entry_vars: HashMap<String, serde_json::Value> = variables
+                    .iter()
+                    .map(|(k, v)| (k.clone(), self.parse_ini_value(v)))
+                    .collect();
 
-                let host = ParsedHost {
-                    name: hostname.clone(),
-                    address,
-                    port,
-                    user,
-                    vars: entry
-                        .variables
-                        .iter()
-                        .map(|(k, v)| (k.clone(), self.parse_ini_value(v)))
-                        .collect(),
-                    groups: vec![group_name.clone()],
-                };
+                if let Some(existing_host) = inventory.hosts.get_mut(&hostname) {
+                    // Merge with existing host, preserving connection info if not already set
+                    if existing_host.address.is_none() && address.is_some() {
+                        existing_host.address = address;
+                    }
+                    if existing_host.port.is_none() && port.is_some() {
+                        existing_host.port = port;
+                    }
+                    if existing_host.user.is_none() && user.is_some() {
+                        existing_host.user = user;
+                    }
 
-                inventory.hosts.insert(hostname.clone(), host);
+                    // Merge variables (existing variables take precedence)
+                    for (key, value) in entry_vars {
+                        existing_host.vars.entry(key).or_insert(value);
+                    }
+
+                    // Add group membership if not already present
+                    if !existing_host.groups.contains(&group_name) {
+                        existing_host.groups.push(group_name.clone());
+                    }
+                } else {
+                    // Create new host
+                    let host = ParsedHost {
+                        name: hostname.clone(),
+                        address,
+                        port,
+                        user,
+                        vars: entry_vars,
+                        groups: vec![group_name.clone()],
+                    };
+                    inventory.hosts.insert(hostname.clone(), host);
+                }
                 group_hosts.push(hostname);
             }
         }
@@ -385,6 +431,54 @@ impl<'a> IniInventoryParser<'a> {
             });
         }
         Ok(host_pattern.expanded)
+    }
+
+    /// Expand patterns in variable values to match the number of hosts
+    fn expand_variable_patterns(
+        &self,
+        variables: &HashMap<String, String>,
+        host_count: usize,
+    ) -> Result<Vec<HashMap<String, String>>, ParseError> {
+        // If no expansion needed, return copies
+        if host_count <= 1 {
+            return Ok(vec![variables.clone()]);
+        }
+
+        let mut expanded_vars = vec![HashMap::new(); host_count];
+
+        for (key, value) in variables {
+            // Check if the value contains a pattern
+            if value.contains('[') && value.contains(']') {
+                // Try to expand the pattern
+                if let Ok(pattern) = HostPattern::new(value) {
+                    let expanded_values = pattern.expand()?;
+
+                    // Ensure we have the right number of values
+                    if expanded_values.len() == host_count {
+                        for (i, expanded_value) in expanded_values.into_iter().enumerate() {
+                            expanded_vars[i].insert(key.clone(), expanded_value);
+                        }
+                    } else {
+                        // Pattern expansion doesn't match host count, use original value for all
+                        for expanded_var in &mut expanded_vars {
+                            expanded_var.insert(key.clone(), value.clone());
+                        }
+                    }
+                } else {
+                    // Pattern expansion failed, use original value for all
+                    for expanded_var in &mut expanded_vars {
+                        expanded_var.insert(key.clone(), value.clone());
+                    }
+                }
+            } else {
+                // No pattern, use the same value for all hosts
+                for expanded_var in &mut expanded_vars {
+                    expanded_var.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        Ok(expanded_vars)
     }
 
     /// Parse inline host variables from inventory line
@@ -507,7 +601,8 @@ impl<'a> IniInventoryParser<'a> {
     ) -> (Option<String>, Option<u16>, Option<String>) {
         let address = vars
             .get("ansible_host")
-            .or_else(|| vars.get("ansible_ssh_host")).cloned();
+            .or_else(|| vars.get("ansible_ssh_host"))
+            .cloned();
 
         let port = vars
             .get("ansible_port")
@@ -517,7 +612,8 @@ impl<'a> IniInventoryParser<'a> {
         let user = vars
             .get("ansible_user")
             .or_else(|| vars.get("ansible_ssh_user"))
-            .or_else(|| vars.get("ansible_ssh_user_name")).cloned();
+            .or_else(|| vars.get("ansible_ssh_user_name"))
+            .cloned();
 
         (address, port, user)
     }
@@ -533,15 +629,20 @@ impl<'a> IniInventoryParser<'a> {
             }
         }
 
-        // Create or update the "all" group
-        let all_group = ParsedGroup {
-            name: "all".to_string(),
-            hosts: all_hosts,
-            children: Vec::new(),
-            vars: HashMap::new(),
-        };
-
-        inventory.groups.insert("all".to_string(), all_group);
+        // Create or update the "all" group, preserving existing variables
+        if let Some(existing_all_group) = inventory.groups.get_mut("all") {
+            // Update hosts list but preserve variables and children
+            existing_all_group.hosts = all_hosts;
+        } else {
+            // Create new "all" group
+            let all_group = ParsedGroup {
+                name: "all".to_string(),
+                hosts: all_hosts,
+                children: Vec::new(),
+                vars: HashMap::new(),
+            };
+            inventory.groups.insert("all".to_string(), all_group);
+        }
     }
 
     /// Validate inventory structure

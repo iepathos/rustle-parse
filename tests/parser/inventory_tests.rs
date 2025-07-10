@@ -7,10 +7,7 @@ async fn test_parse_ini_inventory() {
     let fixture_path = PathBuf::from("tests/fixtures/inventories/hosts.ini");
 
     let result = parser.parse_inventory(&fixture_path).await;
-    assert!(
-        result.is_ok(),
-        "Failed to parse INI inventory: {result:?}"
-    );
+    assert!(result.is_ok(), "Failed to parse INI inventory: {result:?}");
 
     let inventory = result.unwrap();
 

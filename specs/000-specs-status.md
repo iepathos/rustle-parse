@@ -6,7 +6,7 @@ This document tracks the status of all specification documents in the project.
 
 | Spec | Feature | Status |
 |------|---------|--------|
-| 030 | Rustle Parse Tool | ✅ Complete |
+| 010 | Rustle Parse Tool | ✅ Complete |
 
 ## In Progress / Planned Specs
 

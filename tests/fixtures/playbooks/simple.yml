@@ -1,0 +1,31 @@
+---
+- name: Simple test playbook
+  hosts: all
+  vars:
+    test_var: "hello world"
+    number_var: 42
+  tasks:
+    - name: Print a message
+      debug:
+        msg: "{{ test_var }}"
+      tags:
+        - debug
+        - test
+
+    - name: Install package
+      package:
+        name: git
+        state: present
+      become: yes
+
+    - name: Notify handler
+      command: /bin/true
+      notify:
+        - restart service
+      when: test_var is defined
+
+  handlers:
+    - name: restart service
+      service:
+        name: example
+        state: restarted

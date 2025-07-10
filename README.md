@@ -1,90 +1,182 @@
-# Rust Claude Code Starter Template
+# rustle-parse
 
-A comprehensive starter template for Rust projects optimized for development with Claude Code. This template provides a solid foundation with best practices, tooling configurations, and development guidelines for building robust Rust applications.
+A specialized YAML and inventory parser for Ansible-compatible playbooks that converts playbooks and inventory files into structured JSON/binary format. This tool centralizes all parsing logic into a single, focused tool that can be reused across the Rustle ecosystem.
 
-## 🚀 Quick Start
+## 🚀 Features
 
-1. **Clone this template**
-   ```bash
-   git clone https://github.com/iepathos/rust-claude-code.git rustle-parse
-   cd rustle-parse
-   ```
+- **Parse Ansible-compatible YAML playbooks** with full support for plays, tasks, handlers, and roles
+- **Multiple inventory formats** - INI, YAML, and JSON inventory parsing
+- **Jinja2 template resolution** with Ansible-compatible filters
+- **Syntax validation** and comprehensive error reporting with line numbers
+- **Multiple output formats** - JSON, YAML, and binary (planned)
+- **High performance** - built in Rust for speed and memory efficiency
+- **Comprehensive CLI** with various inspection and validation modes
 
-2. **Initialize your project**
-   ```bash
-   # Remove template git history
-   rm -rf .git
-   git init
-   
-   # Create initial Cargo.toml
-   cargo init --name my-project
-   ```
+## 📦 Installation
 
-3. **Install development dependencies**
-   ```bash
-   # Install rustfmt and clippy
-   rustup component add rustfmt clippy
-   
-   # Install cargo-watch for development
-   cargo install cargo-watch
-   
-   # Install additional tools (optional)
-   cargo install cargo-tarpaulin  # Code coverage
-   cargo install cargo-audit      # Security audits
-   cargo install cargo-outdated   # Dependency updates
-   ```
+### From Source
+
+```bash
+git clone <repository-url> rustle-parse
+cd rustle-parse
+cargo build --release
+```
+
+The binary will be available at `target/release/rustle-parse`.
+
+### Development Setup
+
+```bash
+# Install development dependencies
+rustup component add rustfmt clippy
+cargo install cargo-watch cargo-tarpaulin cargo-audit
+
+# Run in development mode
+cargo run -- --help
+```
+
+## 🛠️ Usage
+
+### Basic Usage
+
+```bash
+# Parse a playbook and output JSON
+rustle-parse playbook.yml
+
+# Parse with inventory
+rustle-parse -i hosts.ini playbook.yml
+
+# Parse with extra variables
+rustle-parse -e "env=prod,debug=true" playbook.yml
+
+# Output in different formats
+rustle-parse -o yaml playbook.yml
+rustle-parse -o json playbook.yml
+```
+
+### Validation and Inspection
+
+```bash
+# Validate syntax only
+rustle-parse --syntax-check playbook.yml
+
+# List all tasks with metadata
+rustle-parse --list-tasks playbook.yml
+
+# List all hosts from inventory
+rustle-parse --list-hosts -i inventory.ini
+
+# Dry run (parse but don't output)
+rustle-parse --dry-run playbook.yml
+```
+
+### Advanced Options
+
+```bash
+# Use vault password file
+rustle-parse -v vault-password.txt playbook.yml
+
+# Enable verbose logging
+rustle-parse --verbose playbook.yml
+
+# Use caching for better performance
+rustle-parse -c /tmp/cache playbook.yml
+```
+
+## 📋 Command Line Reference
+
+```
+rustle-parse [OPTIONS] [PLAYBOOK_FILE]
+
+Arguments:
+  [PLAYBOOK_FILE]  Path to playbook file (or stdin if -)
+
+Options:
+  -i, --inventory <FILE>            Inventory file path
+  -e, --extra-vars <VARS>           Extra variables (key=value,...)
+  -o, --output <OUTPUT>             Output format [default: json] [possible values: json, binary, yaml]
+  -c, --cache-dir <DIR>             Cache directory for parsed results
+  -v, --vault-password-file <FILE>  Vault password file
+      --syntax-check                Only validate syntax, don't output
+      --list-tasks                  List all tasks with metadata
+      --list-hosts                  List all hosts with variables
+      --verbose                     Enable verbose output
+      --dry-run                     Parse but don't write output
+  -h, --help                        Print help
+  -V, --version                     Print version
+```
 
 ## 📁 Project Structure
 
 ```
 rustle-parse/
-├── src/                    # Source code
-│   ├── main.rs            # Binary entry point
-│   ├── lib.rs             # Library entry point
-│   └── modules/           # Application modules
-├── tests/                 # Integration tests
-├── benches/               # Benchmarks
-├── examples/              # Usage examples
-├── docs/                  # Documentation
-├── .gitignore             # Git ignore rules
-├── CLAUDE.md              # Claude Code guidelines
-├── Cargo.toml             # Project manifest
-└── README.md              # This file
+├── src/
+│   ├── bin/
+│   │   └── rustle-parse.rs        # CLI binary entry point
+│   ├── parser/
+│   │   ├── mod.rs                 # Parser module exports
+│   │   ├── playbook.rs            # Playbook parsing logic
+│   │   ├── inventory.rs           # Inventory parsing logic
+│   │   ├── template.rs            # Jinja2 template engine
+│   │   ├── error.rs               # Error types and handling
+│   │   ├── vault.rs               # Vault decryption (planned)
+│   │   ├── cache.rs               # Parse result caching (planned)
+│   │   ├── validator.rs           # Syntax validation
+│   │   └── dependency.rs          # Dependency resolution
+│   ├── types/
+│   │   ├── parsed.rs              # Parsed data structures
+│   │   └── output.rs              # Output format types
+│   └── lib.rs                     # Library exports
+├── tests/
+│   ├── fixtures/                  # Test playbooks and inventories
+│   └── parser/                    # Integration tests
+├── specs/                         # Specification documents
+├── Cargo.toml                     # Project manifest
+└── README.md                      # This file
 ```
 
-## 🛠️ Development Workflow
+## 🔍 Output Format
 
-### Running the project
-```bash
-# Build and run
-cargo run
+The tool outputs structured JSON by default. Here's an example of parsed playbook output:
 
-# Run with hot reloading
-cargo watch -x run
-
-# Run tests
-cargo test
-
-# Run with all features
-cargo run --all-features
+```json
+{
+  "metadata": {
+    "file_path": "playbook.yml",
+    "version": null,
+    "created_at": "2025-07-10T02:12:32.663108Z",
+    "checksum": "d48e92ff5b2b8cd603041d0d6a56a9c4674696e8e3c7601a6c526e6a37adea50"
+  },
+  "plays": [
+    {
+      "name": "Example play",
+      "hosts": "all",
+      "vars": {},
+      "tasks": [
+        {
+          "id": "task_0",
+          "name": "Example task",
+          "module": "debug",
+          "args": {
+            "msg": "Hello World"
+          },
+          "tags": [],
+          "when": null,
+          "dependencies": []
+        }
+      ],
+      "handlers": [],
+      "roles": []
+    }
+  ],
+  "variables": {},
+  "facts_required": false,
+  "vault_ids": []
+}
 ```
 
-### Code Quality
-```bash
-# Format code
-cargo fmt
+## 🧪 Testing
 
-# Run linter
-cargo clippy -- -D warnings
-
-# Check without building
-cargo check
-
-# Run security audit
-cargo audit
-```
-
-### Testing
 ```bash
 # Run all tests
 cargo test
@@ -92,127 +184,80 @@ cargo test
 # Run tests with output
 cargo test -- --nocapture
 
-# Run specific test
-cargo test test_name
+# Run integration tests only
+cargo test --test integration_tests
 
 # Generate code coverage
 cargo tarpaulin --out Html
 ```
 
-## 🤖 Claude Code Integration
+## 🔧 Development
 
-This template includes a comprehensive `CLAUDE.md` file that provides:
-
-- **Architecture guidelines**: Error handling, concurrency patterns, and configuration management
-- **Code style standards**: Documentation, logging, and testing requirements
-- **Development patterns**: Best practices and anti-patterns specific to Rust
-- **Example prompts**: How to effectively communicate with Claude for various tasks
-
-### Key Features for Claude Development
-
-1. **Structured Error Handling**
-   - Uses `Result<T, E>` types consistently
-   - Includes examples with `anyhow` and `thiserror`
-
-2. **Async/Await Support**
-   - Pre-configured for `tokio` runtime
-   - Examples for concurrent operations
-
-3. **Comprehensive Testing**
-   - Unit test templates
-   - Property-based testing with `proptest`
-   - Integration test structure
-
-4. **Documentation Standards**
-   - Rustdoc comment templates
-   - Example-driven documentation
-
-## 📦 Recommended Dependencies
-
-Add these to your `Cargo.toml` as needed:
-
-```toml
-[dependencies]
-# Async runtime
-tokio = { version = "1", features = ["full"] }
-
-# Error handling
-anyhow = "1"
-thiserror = "1"
-
-# Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = "0.3"
-
-# CLI
-clap = { version = "4", features = ["derive"] }
-
-# HTTP client
-reqwest = { version = "0.11", features = ["json"] }
-
-[dev-dependencies]
-# Testing
-proptest = "1"
-mockall = "0.11"
-criterion = "0.5"
-tempfile = "3"
-```
-
-## 🔧 Configuration
-
-### Environment Variables
-
-Create a `.env` file for local development:
-
-```env
-# Application settings
-RUST_LOG=debug
-DATABASE_URL=postgresql://localhost/myapp
-API_KEY=your_api_key_here
-```
-
-### VS Code Settings
-
-Recommended `.vscode/settings.json`:
-
-```json
-{
-    "rust-analyzer.cargo.features": ["all"],
-    "rust-analyzer.checkOnSave.command": "clippy",
-    "editor.formatOnSave": true,
-    "[rust]": {
-        "editor.defaultFormatter": "rust-lang.rust-analyzer"
-    }
-}
-```
-
-## 🚀 Building for Production
+### Development Workflow
 
 ```bash
-# Build release version
-cargo build --release
+# Run with hot reloading
+cargo watch -x "run -- --help"
 
-# Run release version
-cargo run --release
+# Format code
+cargo fmt
 
-# Create optimized binary
-RUSTFLAGS="-C target-cpu=native" cargo build --release
+# Run linter
+cargo clippy -- -D warnings
+
+# Check compilation
+cargo check
 ```
 
-## 📚 Learning Resources
+### Architecture
 
-- [The Rust Programming Language Book](https://doc.rust-lang.org/book/)
-- [Rust by Example](https://doc.rust-lang.org/rust-by-example/)
-- [Async Programming in Rust](https://rust-lang.github.io/async-book/)
-- [The Rustonomicon](https://doc.rust-lang.org/nomicon/)
+The parser is built with a modular architecture:
+
+- **Parser Core**: Handles YAML deserialization and data structure conversion
+- **Template Engine**: Processes Jinja2 templates with Ansible-compatible filters
+- **Error Handling**: Comprehensive error types with context and line numbers
+- **CLI Interface**: Full-featured command-line interface with multiple modes
+
+### Key Dependencies
+
+- `serde` & `serde_yaml` - YAML parsing and serialization
+- `minijinja` - Jinja2 template engine
+- `clap` - Command-line argument parsing
+- `tokio` - Async runtime for file I/O
+- `thiserror` & `anyhow` - Error handling
+- `tracing` - Structured logging
+
+## 🎯 Roadmap
+
+### Current Status ✅
+
+- [x] Basic YAML playbook parsing
+- [x] Template resolution with Jinja2
+- [x] CLI interface with all major features
+- [x] Comprehensive error handling
+- [x] Integration tests and fixtures
+
+### Planned Features 🔄
+
+- [ ] Complete INI inventory parsing
+- [ ] Ansible Vault decryption
+- [ ] Parse result caching
+- [ ] Binary output format
+- [ ] Performance optimizations
+- [ ] Dynamic inventory script support
+
+### Future Enhancements 🔮
+
+- [ ] Dependency graph visualization
+- [ ] Advanced syntax validation
+- [ ] Integration with other Rustle tools
+- [ ] Plugin system for custom modules
+
+## 📄 Specifications
+
+This implementation follows [Specification 030: Rustle Parse Tool](specs/030-rustle-parse.md). See the specs directory for detailed requirements and design decisions.
 
 ## 🤝 Contributing
-
-When contributing to this template:
 
 1. Follow the guidelines in `CLAUDE.md`
 2. Ensure all tests pass: `cargo test`
@@ -222,16 +267,8 @@ When contributing to this template:
 
 ## 📝 License
 
-This template is provided as-is for use in your own projects. Customize the license as needed for your specific use case.
+[Add your license here]
 
 ---
 
-## 🎯 Next Steps
-
-1. **Customize `Cargo.toml`** with your project details
-2. **Update this README** with project-specific information
-3. **Review `CLAUDE.md`** for development guidelines
-4. **Set up CI/CD** with GitHub Actions or similar
-5. **Start building** your Rust application!
-
-Happy coding with Rust and Claude! 🦀🤖
+Built with ❤️ in Rust for the Rustle automation ecosystem.

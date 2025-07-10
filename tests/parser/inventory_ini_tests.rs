@@ -5,8 +5,8 @@ use rustle_parse::parser::{InventoryParser, TemplateEngine};
 use std::collections::HashMap;
 use std::io::Write;
 
-static TEMPLATE_ENGINE: Lazy<TemplateEngine> = Lazy::new(|| TemplateEngine::new());
-static EXTRA_VARS: Lazy<HashMap<String, serde_json::Value>> = Lazy::new(|| HashMap::new());
+static TEMPLATE_ENGINE: Lazy<TemplateEngine> = Lazy::new(TemplateEngine::new);
+static EXTRA_VARS: Lazy<HashMap<String, serde_json::Value>> = Lazy::new(HashMap::new);
 
 fn create_test_parser() -> InventoryParser<'static> {
     InventoryParser::new(&TEMPLATE_ENGINE, &EXTRA_VARS)
@@ -100,50 +100,45 @@ async fn test_host_pattern_expansion() {
 
     // Test numeric patterns
     for i in 1..=5 {
-        let host_name = format!("web{:02}", i);
+        let host_name = format!("web{i:02}");
         assert!(
             inventory.hosts.contains_key(&host_name),
-            "Missing host: {}",
-            host_name
+            "Missing host: {host_name}"
         );
     }
 
     // Test alphabetic patterns
     for c in ['a', 'b', 'c', 'd'] {
-        let host_name = format!("db-{}", c);
+        let host_name = format!("db-{c}");
         assert!(
             inventory.hosts.contains_key(&host_name),
-            "Missing host: {}",
-            host_name
+            "Missing host: {host_name}"
         );
     }
 
     // Test list patterns
     for num in [1, 3, 5, 7, 9] {
-        let host_name = format!("worker{}", num);
+        let host_name = format!("worker{num}");
         assert!(
             inventory.hosts.contains_key(&host_name),
-            "Missing host: {}",
-            host_name
+            "Missing host: {host_name}"
         );
     }
 
     for color in ["red", "blue", "green"] {
-        let host_name = format!("queue{}", color);
+        let host_name = format!("queue{color}");
         assert!(
             inventory.hosts.contains_key(&host_name),
-            "Missing host: {}",
-            host_name
+            "Missing host: {host_name}"
         );
     }
 
     // Test zero-padded patterns
     for i in 1..=10 {
-        let host_name = format!("host{:03}", i);
+        let host_name = format!("host{i:03}");
         assert!(
             inventory.hosts.contains_key(&host_name),
-            "Missing host: {}",
-            host_name
+            "Missing host: {host_name}"
         );
     }
 }
@@ -208,23 +203,21 @@ async fn test_edge_cases() {
 
     // Test boolean values
     let host_with_bools = inventory.hosts.get("host1").unwrap();
-    assert_eq!(
+    assert!(
         host_with_bools
             .vars
             .get("enabled")
             .unwrap()
             .as_bool()
-            .unwrap(),
-        true
+            .unwrap()
     );
-    assert_eq!(
-        host_with_bools
+    assert!(
+        !host_with_bools
             .vars
             .get("disabled")
             .unwrap()
             .as_bool()
-            .unwrap(),
-        false
+            .unwrap()
     );
 
     // Test numeric values
@@ -384,8 +377,7 @@ async fn test_all_group_membership() {
     for (host_name, host) in &inventory.hosts {
         assert!(
             host.groups.contains(&"all".to_string()),
-            "Host '{}' is not in the 'all' group",
-            host_name
+            "Host '{host_name}' is not in the 'all' group"
         );
     }
 
@@ -396,8 +388,7 @@ async fn test_all_group_membership() {
     for host_name in inventory.hosts.keys() {
         assert!(
             all_group.hosts.contains(host_name),
-            "Host '{}' is not listed in the 'all' group",
-            host_name
+            "Host '{host_name}' is not listed in the 'all' group"
         );
     }
 }

@@ -87,7 +87,7 @@ impl<'a> IniInventoryParser<'a> {
         config
             .read(content.to_string())
             .map_err(|e| ParseError::IniParsing {
-                message: format!("Failed to parse INI: {}", e),
+                message: format!("Failed to parse INI: {e}"),
             })?;
 
         let mut inventory = ParsedInventory {
@@ -434,8 +434,7 @@ impl<'a> IniInventoryParser<'a> {
     ) -> (Option<String>, Option<u16>, Option<String>) {
         let address = vars
             .get("ansible_host")
-            .or_else(|| vars.get("ansible_ssh_host"))
-            .map(|s| s.clone());
+            .or_else(|| vars.get("ansible_ssh_host")).cloned();
 
         let port = vars
             .get("ansible_port")
@@ -445,8 +444,7 @@ impl<'a> IniInventoryParser<'a> {
         let user = vars
             .get("ansible_user")
             .or_else(|| vars.get("ansible_ssh_user"))
-            .or_else(|| vars.get("ansible_ssh_user_name"))
-            .map(|s| s.clone());
+            .or_else(|| vars.get("ansible_ssh_user_name")).cloned();
 
         (address, port, user)
     }
@@ -484,8 +482,7 @@ impl<'a> IniInventoryParser<'a> {
                 if !inventory.hosts.contains_key(host_name) && self.config.strict_mode {
                     return Err(ParseError::InvalidStructure {
                         message: format!(
-                            "Group '{}' references non-existent host '{}'",
-                            group_name, host_name
+                            "Group '{group_name}' references non-existent host '{host_name}'"
                         ),
                     });
                 }
@@ -509,7 +506,7 @@ impl<'a> IniInventoryParser<'a> {
             let mut visited = HashSet::new();
             let mut path = Vec::new();
 
-            if self.has_circular_dependency(inventory, group_name, &mut visited, &mut path)? {
+            if Self::has_circular_dependency(inventory, group_name, &mut visited, &mut path)? {
                 return Err(ParseError::CircularGroupDependency {
                     cycle: path.join(" -> "),
                 });
@@ -520,7 +517,6 @@ impl<'a> IniInventoryParser<'a> {
 
     /// Recursively check for circular dependencies
     fn has_circular_dependency(
-        &self,
         inventory: &ParsedInventory,
         group_name: &str,
         visited: &mut HashSet<String>,
@@ -540,7 +536,7 @@ impl<'a> IniInventoryParser<'a> {
 
         if let Some(group) = inventory.groups.get(group_name) {
             for child_name in &group.children {
-                if self.has_circular_dependency(inventory, child_name, visited, path)? {
+                if Self::has_circular_dependency(inventory, child_name, visited, path)? {
                     return Ok(true);
                 }
             }
@@ -558,8 +554,8 @@ mod tests {
 
     fn create_test_parser() -> IniInventoryParser<'static> {
         use once_cell::sync::Lazy;
-        static TEMPLATE_ENGINE: Lazy<TemplateEngine> = Lazy::new(|| TemplateEngine::new());
-        static EXTRA_VARS: Lazy<HashMap<String, serde_json::Value>> = Lazy::new(|| HashMap::new());
+        static TEMPLATE_ENGINE: Lazy<TemplateEngine> = Lazy::new(TemplateEngine::new);
+        static EXTRA_VARS: Lazy<HashMap<String, serde_json::Value>> = Lazy::new(HashMap::new);
         IniInventoryParser::new(&TEMPLATE_ENGINE, &EXTRA_VARS)
     }
 

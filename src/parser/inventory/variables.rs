@@ -3,6 +3,9 @@ use crate::types::parsed::{ParsedHost, ParsedInventory};
 use petgraph::{Direction, Graph};
 use std::collections::{HashMap, HashSet};
 
+/// Type alias for group dependency graph structure
+type GroupGraph = (Graph<String, ()>, HashMap<String, petgraph::graph::NodeIndex>);
+
 /// Variable inheritance resolver for inventory
 pub struct VariableInheritanceResolver;
 
@@ -41,15 +44,7 @@ impl VariableInheritanceResolver {
     }
 
     /// Build a directed graph representing group dependencies
-    fn build_group_graph(
-        inventory: &ParsedInventory,
-    ) -> Result<
-        (
-            Graph<String, ()>,
-            HashMap<String, petgraph::graph::NodeIndex>,
-        ),
-        ParseError,
-    > {
+    fn build_group_graph(inventory: &ParsedInventory) -> Result<GroupGraph, ParseError> {
         let mut graph = Graph::new();
         let mut group_indices = HashMap::new();
 
@@ -81,7 +76,7 @@ impl VariableInheritanceResolver {
         group_indices: &HashMap<String, petgraph::graph::NodeIndex>,
     ) -> Result<String, ParseError> {
         // Simple cycle detection - find the first cycle we encounter
-        for (_group_name, &start_index) in group_indices {
+        for &start_index in group_indices.values() {
             let mut visited = HashSet::new();
             let mut path = Vec::new();
 
@@ -297,7 +292,7 @@ impl VariableInheritanceResolver {
     /// Validate variable inheritance setup
     pub fn validate_variable_inheritance(inventory: &ParsedInventory) -> Result<(), ParseError> {
         // Check that all group references are valid
-        for (_group_name, group) in &inventory.groups {
+        for group in inventory.groups.values() {
             for child_name in &group.children {
                 if !inventory.groups.contains_key(child_name) {
                     return Err(ParseError::UnknownGroup {

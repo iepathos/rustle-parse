@@ -57,7 +57,7 @@ impl HostPattern {
                 .map_err(|_| ParseError::InvalidHostPattern {
                     pattern: self.pattern.clone(),
                     line: 0,
-                    message: format!("Invalid start number: {}", start_str),
+                    message: format!("Invalid start number: {start_str}"),
                 })?;
 
             let end: i32 = end_str
@@ -65,14 +65,14 @@ impl HostPattern {
                 .map_err(|_| ParseError::InvalidHostPattern {
                     pattern: self.pattern.clone(),
                     line: 0,
-                    message: format!("Invalid end number: {}", end_str),
+                    message: format!("Invalid end number: {end_str}"),
                 })?;
 
             if start > end {
                 return Err(ParseError::InvalidHostPattern {
                     pattern: self.pattern.clone(),
                     line: 0,
-                    message: format!("Start number {} is greater than end number {}", start, end),
+                    message: format!("Start number {start} is greater than end number {end}"),
                 });
             }
 
@@ -82,9 +82,9 @@ impl HostPattern {
 
             for i in start..=end {
                 let formatted = if zero_padded {
-                    format!("{}{:0width$}{}", prefix, i, suffix, width = width)
+                    format!("{prefix}{i:0width$}{suffix}")
                 } else {
-                    format!("{}{}{}", prefix, i, suffix)
+                    format!("{prefix}{i}{suffix}")
                 };
                 hosts.push(formatted);
             }
@@ -101,14 +101,13 @@ impl HostPattern {
                     pattern: self.pattern.clone(),
                     line: 0,
                     message: format!(
-                        "Start character '{}' is greater than end character '{}'",
-                        start_char, end_char
+                        "Start character '{start_char}' is greater than end character '{end_char}'"
                     ),
                 });
             }
 
             for c in start_char..=end_char {
-                hosts.push(format!("{}{}{}", prefix, c, suffix));
+                hosts.push(format!("{prefix}{c}{suffix}"));
             }
         }
         // Handle comma-separated lists: web[1,3,5]
@@ -122,7 +121,7 @@ impl HostPattern {
                 if item.is_empty() {
                     continue;
                 }
-                hosts.push(format!("{}{}{}", prefix, item, suffix));
+                hosts.push(format!("{prefix}{item}{suffix}"));
             }
         } else {
             return Err(ParseError::InvalidHostPattern {
@@ -147,8 +146,7 @@ impl HostPattern {
                 pattern: self.pattern.clone(),
                 line: 0,
                 message: format!(
-                    "Pattern expansion exceeds maximum limit of {} hosts",
-                    MAX_HOSTS_PER_PATTERN
+                    "Pattern expansion exceeds maximum limit of {MAX_HOSTS_PER_PATTERN} hosts"
                 ),
             });
         }
@@ -221,7 +219,7 @@ impl HostPattern {
                 .map_err(|_| ParseError::InvalidHostPattern {
                     pattern: self.pattern.clone(),
                     line: 0,
-                    message: format!("Invalid start number: {}", start_str),
+                    message: format!("Invalid start number: {start_str}"),
                 })?;
 
             let end: i32 = end_str
@@ -229,7 +227,7 @@ impl HostPattern {
                 .map_err(|_| ParseError::InvalidHostPattern {
                     pattern: self.pattern.clone(),
                     line: 0,
-                    message: format!("Invalid end number: {}", end_str),
+                    message: format!("Invalid end number: {end_str}"),
                 })?;
 
             let zero_padded = start_str.starts_with('0') && start_str.len() > 1;
@@ -297,7 +295,7 @@ impl Iterator for HostPatternIterator {
                     let result = if *zero_padded {
                         format!("{}{:0width$}{}", prefix, current, suffix, width = *width)
                     } else {
-                        format!("{}{}{}", prefix, current, suffix)
+                        format!("{prefix}{current}{suffix}")
                     };
                     *current += 1;
                     Some(result)

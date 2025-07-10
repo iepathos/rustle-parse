@@ -40,14 +40,14 @@ impl InventoryValidator {
         for (host_name, host) in &inventory.hosts {
             if host.groups.is_empty() {
                 return Err(ParseError::InvalidStructure {
-                    message: format!("Host '{}' does not belong to any groups", host_name),
+                    message: format!("Host '{host_name}' does not belong to any groups"),
                 });
             }
 
             // All hosts must be in the 'all' group
             if !host.groups.contains(&"all".to_string()) {
                 return Err(ParseError::InvalidStructure {
-                    message: format!("Host '{}' is not in the 'all' group", host_name),
+                    message: format!("Host '{host_name}' is not in the 'all' group"),
                 });
             }
         }
@@ -57,7 +57,7 @@ impl InventoryValidator {
         for group_name in inventory.groups.keys() {
             if !seen_groups.insert(group_name.clone()) {
                 return Err(ParseError::InvalidStructure {
-                    message: format!("Duplicate group name: '{}'", group_name),
+                    message: format!("Duplicate group name: '{group_name}'"),
                 });
             }
         }
@@ -82,8 +82,7 @@ impl InventoryValidator {
                 if !inventory.hosts.contains_key(host_name) {
                     return Err(ParseError::InvalidStructure {
                         message: format!(
-                            "Group '{}' references non-existent host '{}'",
-                            group_name, host_name
+                            "Group '{group_name}' references non-existent host '{host_name}'"
                         ),
                     });
                 }
@@ -97,8 +96,7 @@ impl InventoryValidator {
                     if !group.hosts.contains(host_name) {
                         return Err(ParseError::InvalidStructure {
                             message: format!(
-                                "Host '{}' claims membership in group '{}' but group doesn't list the host", 
-                                host_name, group_name
+                                "Host '{host_name}' claims membership in group '{group_name}' but group doesn't list the host"
                             ),
                         });
                     }
@@ -126,7 +124,7 @@ impl InventoryValidator {
                 // Prevent self-reference
                 if child_name == group_name {
                     return Err(ParseError::CircularGroupDependency {
-                        cycle: format!("{} -> {}", group_name, child_name),
+                        cycle: format!("{group_name} -> {child_name}"),
                     });
                 }
             }
@@ -142,12 +140,12 @@ impl InventoryValidator {
 
         // Validate group variables
         for (group_name, group) in &inventory.groups {
-            Self::validate_variable_dict(&group.vars, &format!("group '{}'", group_name))?;
+            Self::validate_variable_dict(&group.vars, &format!("group '{group_name}'"))?;
         }
 
         // Validate host variables
         for (host_name, host) in &inventory.hosts {
-            Self::validate_variable_dict(&host.vars, &format!("host '{}'", host_name))?;
+            Self::validate_variable_dict(&host.vars, &format!("host '{host_name}'"))?;
         }
 
         Ok(())
@@ -173,8 +171,7 @@ impl InventoryValidator {
             return Err(ParseError::InvalidVariableSyntax {
                 line: 0,
                 message: format!(
-                    "Variable name '{}' in {} exceeds maximum length of {} characters",
-                    name, context, MAX_VARIABLE_NAME_LENGTH
+                    "Variable name '{name}' in {context} exceeds maximum length of {MAX_VARIABLE_NAME_LENGTH} characters"
                 ),
             });
         }
@@ -184,8 +181,7 @@ impl InventoryValidator {
             return Err(ParseError::InvalidVariableSyntax {
                 line: 0,
                 message: format!(
-                    "Invalid variable name '{}' in {}. Variable names must start with a letter or underscore and contain only letters, numbers, and underscores",
-                    name, context
+                    "Invalid variable name '{name}' in {context}. Variable names must start with a letter or underscore and contain only letters, numbers, and underscores"
                 ),
             });
         }
@@ -195,8 +191,7 @@ impl InventoryValidator {
             return Err(ParseError::InvalidVariableSyntax {
                 line: 0,
                 message: format!(
-                    "Variable name '{}' in {} is reserved and cannot be used",
-                    name, context
+                    "Variable name '{name}' in {context} is reserved and cannot be used"
                 ),
             });
         }
@@ -228,8 +223,7 @@ impl InventoryValidator {
             return Err(ParseError::InvalidVariableSyntax {
                 line: 0,
                 message: format!(
-                    "Variable '{}' in {} has value exceeding maximum length of {} characters",
-                    var_name, context, MAX_VARIABLE_VALUE_LENGTH
+                    "Variable '{var_name}' in {context} has value exceeding maximum length of {MAX_VARIABLE_VALUE_LENGTH} characters"
                 ),
             });
         }
@@ -240,8 +234,7 @@ impl InventoryValidator {
                 return Err(ParseError::InvalidVariableSyntax {
                     line: 0,
                     message: format!(
-                        "Variable '{}' in {} contains potentially dangerous content",
-                        var_name, context
+                        "Variable '{var_name}' in {context} contains potentially dangerous content"
                     ),
                 });
             }
@@ -297,8 +290,7 @@ impl InventoryValidator {
             if !Self::is_valid_hostname_or_ip(address) {
                 return Err(ParseError::InvalidStructure {
                     message: format!(
-                        "Host '{}' has invalid ansible_host address: '{}'",
-                        host_name, address
+                        "Host '{host_name}' has invalid ansible_host address: '{address}'"
                     ),
                 });
             }
@@ -306,10 +298,9 @@ impl InventoryValidator {
 
         // Validate ansible_port
         if let Some(port) = host.port {
-            #[allow(unused_comparisons)]
-            if port == 0 || port > 65535 {
+            if port == 0 {
                 return Err(ParseError::InvalidStructure {
-                    message: format!("Host '{}' has invalid port number: {}", host_name, port),
+                    message: format!("Host '{host_name}' has invalid port number: {port}"),
                 });
             }
         }
@@ -318,15 +309,14 @@ impl InventoryValidator {
         if let Some(user) = &host.user {
             if user.is_empty() || user.len() > 32 {
                 return Err(ParseError::InvalidStructure {
-                    message: format!("Host '{}' has invalid username: '{}'", host_name, user),
+                    message: format!("Host '{host_name}' has invalid username: '{user}'"),
                 });
             }
 
             if !VALID_USERNAME.is_match(user) {
                 return Err(ParseError::InvalidStructure {
                     message: format!(
-                        "Host '{}' has invalid username format: '{}'",
-                        host_name, user
+                        "Host '{host_name}' has invalid username format: '{user}'"
                     ),
                 });
             }
@@ -376,8 +366,7 @@ impl InventoryValidator {
         for (group_name, group) in &inventory.groups {
             if group.hosts.is_empty() && group.children.is_empty() && group_name != "all" {
                 warnings.push(format!(
-                    "Group '{}' is empty (no hosts or children)",
-                    group_name
+                    "Group '{group_name}' is empty (no hosts or children)"
                 ));
             }
         }
@@ -386,8 +375,7 @@ impl InventoryValidator {
         for (host_name, host) in &inventory.hosts {
             if host.address.is_none() && host_name != "localhost" {
                 warnings.push(format!(
-                    "Host '{}' has no ansible_host address specified",
-                    host_name
+                    "Host '{host_name}' has no ansible_host address specified"
                 ));
             }
         }
@@ -397,8 +385,7 @@ impl InventoryValidator {
         for var_name in inventory.variables.keys() {
             if !used_vars.contains(var_name) {
                 warnings.push(format!(
-                    "Global variable '{}' appears to be unused",
-                    var_name
+                    "Global variable '{var_name}' appears to be unused"
                 ));
             }
         }

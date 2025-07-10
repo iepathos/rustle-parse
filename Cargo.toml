@@ -37,7 +37,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["fs", "rt", "rt-multi-thread", "macros"] }
 
 # Graph algorithms for dependency resolution
-petgraph = "0.6"
+petgraph = "0.8"
 
 # Text processing
 regex = "1"

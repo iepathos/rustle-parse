@@ -51,4 +51,23 @@ pub enum ParseError {
 
     #[error("Unsupported feature: {feature}")]
     UnsupportedFeature { feature: String },
+
+    #[error("Invalid host pattern '{pattern}' at line {line}: {message}")]
+    InvalidHostPattern {
+        pattern: String,
+        line: usize,
+        message: String,
+    },
+
+    #[error("Circular group dependency: {cycle}")]
+    CircularGroupDependency { cycle: String },
+
+    #[error("Invalid variable syntax at line {line}: {message}")]
+    InvalidVariableSyntax { line: usize, message: String },
+
+    #[error("Duplicate host '{host}' in inventory")]
+    DuplicateHost { host: String },
+
+    #[error("Unknown group '{group}' referenced in children")]
+    UnknownGroup { group: String },
 }

@@ -1,0 +1,406 @@
+use crate::parser::error::ParseError;
+use once_cell::sync::Lazy;
+use regex::Regex;
+
+/// Represents a host pattern that can be expanded into individual host names.
+#[derive(Debug, Clone)]
+pub struct HostPattern {
+    pub pattern: String,
+    pub expanded: Vec<String>,
+}
+
+impl HostPattern {
+    /// Create a new host pattern and expand it.
+    pub fn new(pattern: &str) -> Result<Self, ParseError> {
+        let mut host_pattern = Self {
+            pattern: pattern.to_string(),
+            expanded: Vec::new(),
+        };
+        host_pattern.expanded = host_pattern.expand()?;
+        Ok(host_pattern)
+    }
+
+    /// Check if the pattern contains expandable elements.
+    pub fn is_pattern(&self) -> bool {
+        self.pattern.contains('[') && self.pattern.contains(']')
+    }
+
+    /// Check if the pattern appears to be attempting to use pattern syntax
+    fn appears_to_be_pattern(&self) -> bool {
+        self.pattern.contains('[') || self.pattern.contains(']')
+    }
+
+    /// Expand the host pattern into individual host names.
+    pub fn expand(&self) -> Result<Vec<String>, ParseError> {
+        // If it appears to be a pattern but isn't valid, validate and return error
+        if self.appears_to_be_pattern() && !self.is_pattern() {
+            self.validate_pattern()?;
+        }
+
+        if !self.is_pattern() {
+            return Ok(vec![self.pattern.clone()]);
+        }
+
+        self.validate_pattern()?;
+
+        let mut hosts = Vec::new();
+
+        // Handle numeric ranges: web[01:05]
+        if let Some(captures) = NUMERIC_PATTERN.captures(&self.pattern) {
+            let prefix = &captures[1];
+            let start_str = &captures[2];
+            let end_str = &captures[3];
+            let suffix = captures.get(4).map_or("", |m| m.as_str());
+
+            let start: i32 = start_str
+                .parse()
+                .map_err(|_| ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: format!("Invalid start number: {}", start_str),
+                })?;
+
+            let end: i32 = end_str
+                .parse()
+                .map_err(|_| ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: format!("Invalid end number: {}", end_str),
+                })?;
+
+            if start > end {
+                return Err(ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: format!("Start number {} is greater than end number {}", start, end),
+                });
+            }
+
+            // Check for zero-padding
+            let zero_padded = start_str.starts_with('0') && start_str.len() > 1;
+            let width = if zero_padded { start_str.len() } else { 0 };
+
+            for i in start..=end {
+                let formatted = if zero_padded {
+                    format!("{}{:0width$}{}", prefix, i, suffix, width = width)
+                } else {
+                    format!("{}{}{}", prefix, i, suffix)
+                };
+                hosts.push(formatted);
+            }
+        }
+        // Handle alphabetic ranges: db-[a:c]
+        else if let Some(captures) = ALPHA_PATTERN.captures(&self.pattern) {
+            let prefix = &captures[1];
+            let start_char = captures[2].chars().next().unwrap();
+            let end_char = captures[3].chars().next().unwrap();
+            let suffix = captures.get(4).map_or("", |m| m.as_str());
+
+            if start_char > end_char {
+                return Err(ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: format!(
+                        "Start character '{}' is greater than end character '{}'",
+                        start_char, end_char
+                    ),
+                });
+            }
+
+            for c in start_char..=end_char {
+                hosts.push(format!("{}{}{}", prefix, c, suffix));
+            }
+        }
+        // Handle comma-separated lists: web[1,3,5]
+        else if let Some(captures) = LIST_PATTERN.captures(&self.pattern) {
+            let prefix = &captures[1];
+            let list = &captures[2];
+            let suffix = captures.get(3).map_or("", |m| m.as_str());
+
+            for item in list.split(',') {
+                let item = item.trim();
+                if item.is_empty() {
+                    continue;
+                }
+                hosts.push(format!("{}{}{}", prefix, item, suffix));
+            }
+        } else {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Unrecognized pattern format".to_string(),
+            });
+        }
+
+        if hosts.is_empty() {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Pattern expansion resulted in no hosts".to_string(),
+            });
+        }
+
+        // Limit pattern expansion to prevent resource exhaustion
+        const MAX_HOSTS_PER_PATTERN: usize = 10000;
+        if hosts.len() > MAX_HOSTS_PER_PATTERN {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: format!(
+                    "Pattern expansion exceeds maximum limit of {} hosts",
+                    MAX_HOSTS_PER_PATTERN
+                ),
+            });
+        }
+
+        Ok(hosts)
+    }
+
+    /// Validate pattern syntax before attempting expansion.
+    fn validate_pattern(&self) -> Result<(), ParseError> {
+        // Check for balanced brackets
+        let open_brackets = self.pattern.matches('[').count();
+        let close_brackets = self.pattern.matches(']').count();
+
+        if open_brackets != close_brackets {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Unmatched brackets in host pattern".to_string(),
+            });
+        }
+
+        if open_brackets == 0 {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "No brackets found in pattern".to_string(),
+            });
+        }
+
+        if open_brackets > 1 {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Nested or multiple brackets not supported".to_string(),
+            });
+        }
+
+        // Check for empty brackets
+        if self.pattern.contains("[]") {
+            return Err(ParseError::InvalidHostPattern {
+                pattern: self.pattern.clone(),
+                line: 0,
+                message: "Empty brackets not allowed".to_string(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Create a lazy iterator for large patterns to avoid allocating all hosts at once.
+    pub fn expand_lazy(&self) -> Result<HostPatternIterator, ParseError> {
+        if !self.is_pattern() {
+            return Ok(HostPatternIterator::Single {
+                pattern: self.pattern.clone(),
+                consumed: false,
+            });
+        }
+
+        self.validate_pattern()?;
+
+        // Handle numeric ranges
+        if let Some(captures) = NUMERIC_PATTERN.captures(&self.pattern) {
+            let prefix = captures[1].to_string();
+            let start_str = &captures[2];
+            let end_str = &captures[3];
+            let suffix = captures.get(4).map_or("", |m| m.as_str()).to_string();
+
+            let start: i32 = start_str
+                .parse()
+                .map_err(|_| ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: format!("Invalid start number: {}", start_str),
+                })?;
+
+            let end: i32 = end_str
+                .parse()
+                .map_err(|_| ParseError::InvalidHostPattern {
+                    pattern: self.pattern.clone(),
+                    line: 0,
+                    message: format!("Invalid end number: {}", end_str),
+                })?;
+
+            let zero_padded = start_str.starts_with('0') && start_str.len() > 1;
+            let width = if zero_padded { start_str.len() } else { 0 };
+
+            return Ok(HostPatternIterator::Numeric {
+                prefix,
+                suffix,
+                current: start,
+                end,
+                zero_padded,
+                width,
+            });
+        }
+
+        // For other patterns, fall back to immediate expansion
+        let expanded = self.expand()?;
+        Ok(HostPatternIterator::List {
+            hosts: expanded.into_iter(),
+        })
+    }
+}
+
+/// Iterator for lazy host pattern expansion.
+pub enum HostPatternIterator {
+    Single {
+        pattern: String,
+        consumed: bool,
+    },
+    Numeric {
+        prefix: String,
+        suffix: String,
+        current: i32,
+        end: i32,
+        zero_padded: bool,
+        width: usize,
+    },
+    List {
+        hosts: std::vec::IntoIter<String>,
+    },
+}
+
+impl Iterator for HostPatternIterator {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            HostPatternIterator::Single { pattern, consumed } => {
+                if *consumed {
+                    None
+                } else {
+                    *consumed = true;
+                    Some(pattern.clone())
+                }
+            }
+            HostPatternIterator::Numeric {
+                prefix,
+                suffix,
+                current,
+                end,
+                zero_padded,
+                width,
+            } => {
+                if *current <= *end {
+                    let result = if *zero_padded {
+                        format!("{}{:0width$}{}", prefix, current, suffix, width = *width)
+                    } else {
+                        format!("{}{}{}", prefix, current, suffix)
+                    };
+                    *current += 1;
+                    Some(result)
+                } else {
+                    None
+                }
+            }
+            HostPatternIterator::List { hosts } => hosts.next(),
+        }
+    }
+}
+
+// Compiled regex patterns for efficient matching
+static NUMERIC_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(.+)\[(\d+):(\d+)\](.*)$").unwrap());
+
+static ALPHA_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(.+)\[([a-z]):([a-z])\](.*)$").unwrap());
+
+static LIST_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(.+)\[([^:\]]+)\](.*)$").unwrap());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_hostname() {
+        let pattern = HostPattern::new("web1").unwrap();
+        assert!(!pattern.is_pattern());
+        assert_eq!(pattern.expanded, vec!["web1"]);
+    }
+
+    #[test]
+    fn test_numeric_pattern_expansion() {
+        let pattern = HostPattern::new("web[01:03]").unwrap();
+        assert!(pattern.is_pattern());
+        assert_eq!(pattern.expanded, vec!["web01", "web02", "web03"]);
+    }
+
+    #[test]
+    fn test_numeric_pattern_no_zero_padding() {
+        let pattern = HostPattern::new("web[1:3]").unwrap();
+        assert_eq!(pattern.expanded, vec!["web1", "web2", "web3"]);
+    }
+
+    #[test]
+    fn test_alphabetic_pattern_expansion() {
+        let pattern = HostPattern::new("db-[a:c]").unwrap();
+        assert_eq!(pattern.expanded, vec!["db-a", "db-b", "db-c"]);
+    }
+
+    #[test]
+    fn test_list_pattern_expansion() {
+        let pattern = HostPattern::new("web[1,3,5]").unwrap();
+        assert_eq!(pattern.expanded, vec!["web1", "web3", "web5"]);
+    }
+
+    #[test]
+    fn test_pattern_with_suffix() {
+        let pattern = HostPattern::new("web[01:02].example.com").unwrap();
+        assert_eq!(
+            pattern.expanded,
+            vec!["web01.example.com", "web02.example.com"]
+        );
+    }
+
+    #[test]
+    fn test_invalid_pattern_unmatched_brackets() {
+        let result = HostPattern::new("web[01:03");
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseError::InvalidHostPattern { .. }
+        ));
+    }
+
+    #[test]
+    fn test_invalid_pattern_empty_brackets() {
+        let result = HostPattern::new("web[]");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_invalid_pattern_start_greater_than_end() {
+        let result = HostPattern::new("web[05:01]");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_lazy_iterator_numeric() {
+        let pattern = HostPattern::new("web[1:3]").unwrap();
+        let mut iter = pattern.expand_lazy().unwrap();
+        assert_eq!(iter.next(), Some("web1".to_string()));
+        assert_eq!(iter.next(), Some("web2".to_string()));
+        assert_eq!(iter.next(), Some("web3".to_string()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_lazy_iterator_single() {
+        let pattern = HostPattern::new("web1").unwrap();
+        let mut iter = pattern.expand_lazy().unwrap();
+        assert_eq!(iter.next(), Some("web1".to_string()));
+        assert_eq!(iter.next(), None);
+    }
+}

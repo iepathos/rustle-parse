@@ -1,4 +1,7 @@
 use crate::parser::error::ParseError;
+use crate::parser::inventory::ini::{IniInventoryParser, InventoryParserConfig};
+use crate::parser::inventory::validation::InventoryValidator;
+use crate::parser::inventory::variables::VariableInheritanceResolver;
 use crate::parser::template::TemplateEngine;
 use crate::types::parsed::*;
 use serde::Deserialize;
@@ -7,9 +10,9 @@ use std::path::Path;
 use tokio::fs;
 
 pub struct InventoryParser<'a> {
-    #[allow(dead_code)]
     template_engine: &'a TemplateEngine,
     extra_vars: &'a HashMap<String, serde_json::Value>,
+    config: InventoryParserConfig,
 }
 
 impl<'a> InventoryParser<'a> {
@@ -20,6 +23,19 @@ impl<'a> InventoryParser<'a> {
         Self {
             template_engine,
             extra_vars,
+            config: InventoryParserConfig::default(),
+        }
+    }
+
+    pub fn with_config(
+        template_engine: &'a TemplateEngine,
+        extra_vars: &'a HashMap<String, serde_json::Value>,
+        config: InventoryParserConfig,
+    ) -> Self {
+        Self {
+            template_engine,
+            extra_vars,
+            config,
         }
     }
 
@@ -54,41 +70,63 @@ impl<'a> InventoryParser<'a> {
         }
     }
 
-    async fn parse_ini_inventory(&self, _content: &str) -> Result<ParsedInventory, ParseError> {
-        // For now, return a simple inventory structure
-        // TODO: Implement proper INI parsing with configparser
-        let mut hosts = HashMap::new();
-        let mut groups = HashMap::new();
-        let variables = self.extra_vars.clone();
-
-        // Simple parsing that creates a basic host for testing
-        hosts.insert(
-            "localhost".to_string(),
-            ParsedHost {
-                name: "localhost".to_string(),
-                address: Some("127.0.0.1".to_string()),
-                port: None,
-                user: None,
-                vars: HashMap::new(),
-                groups: vec!["all".to_string()],
-            },
+    async fn parse_ini_inventory(&self, content: &str) -> Result<ParsedInventory, ParseError> {
+        // Use the new comprehensive INI parser
+        let ini_parser = IniInventoryParser::with_config(
+            self.template_engine,
+            self.extra_vars,
+            self.config.clone(),
         );
 
-        groups.insert(
-            "all".to_string(),
-            ParsedGroup {
-                name: "all".to_string(),
-                hosts: vec!["localhost".to_string()],
-                children: Vec::new(),
-                vars: HashMap::new(),
-            },
-        );
+        let mut inventory = ini_parser.parse_ini_inventory(content).await?;
 
-        Ok(ParsedInventory {
-            hosts,
-            groups,
-            variables,
-        })
+        // Resolve variable inheritance
+        VariableInheritanceResolver::resolve_group_inheritance(&mut inventory)?;
+
+        // Validate the final inventory
+        InventoryValidator::validate_inventory(&inventory)?;
+
+        Ok(inventory)
+    }
+
+    /// Parse host patterns like web[01:05] into individual hosts
+    pub fn expand_host_pattern(&self, pattern: &str) -> Result<Vec<String>, ParseError> {
+        let ini_parser = IniInventoryParser::with_config(
+            self.template_engine,
+            self.extra_vars,
+            self.config.clone(),
+        );
+        ini_parser.expand_host_pattern(pattern)
+    }
+
+    /// Parse inline host variables from inventory line
+    pub fn parse_host_variables(
+        &self,
+        vars_str: &str,
+    ) -> Result<HashMap<String, serde_json::Value>, ParseError> {
+        let ini_parser = IniInventoryParser::with_config(
+            self.template_engine,
+            self.extra_vars,
+            self.config.clone(),
+        );
+        let raw_vars = ini_parser.parse_host_variables(vars_str)?;
+        Ok(raw_vars
+            .into_iter()
+            .map(|(k, v)| (k, serde_json::Value::String(v)))
+            .collect())
+    }
+
+    /// Resolve group inheritance and variable precedence
+    pub fn resolve_group_inheritance(
+        &self,
+        inventory: &mut ParsedInventory,
+    ) -> Result<(), ParseError> {
+        VariableInheritanceResolver::resolve_group_inheritance(inventory)
+    }
+
+    /// Validate inventory structure and relationships
+    pub fn validate_inventory(&self, inventory: &ParsedInventory) -> Result<(), ParseError> {
+        InventoryValidator::validate_inventory(inventory)
     }
 
     async fn parse_yaml_inventory(&self, content: &str) -> Result<ParsedInventory, ParseError> {
@@ -278,7 +316,7 @@ impl<'a> InventoryParser<'a> {
     }
 
     #[allow(dead_code)]
-    fn parse_host_variables(&self, vars_str: &str) -> HashMap<String, serde_json::Value> {
+    fn parse_host_variables_internal(&self, vars_str: &str) -> HashMap<String, serde_json::Value> {
         let mut vars = HashMap::new();
 
         // Parse key=value pairs

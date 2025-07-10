@@ -190,76 +190,75 @@ impl HostPattern {
                 let suffix = &current_pattern[end..];
 
                 // Determine the pattern type and expand
-                let expansions: Vec<String> = if bracket_content.contains(':') {
-                    if bracket_content
-                        .chars()
-                        .all(|c| c.is_ascii_digit() || c == ':')
-                    {
-                        // Numeric pattern like [1:3]
-                        let parts: Vec<&str> = bracket_content.split(':').collect();
-                        if parts.len() == 2 {
-                            let start_num: i32 =
-                                parts[0]
-                                    .parse()
-                                    .map_err(|_| ParseError::InvalidHostPattern {
+                let expansions: Vec<String> =
+                    if bracket_content.contains(':') {
+                        if bracket_content
+                            .chars()
+                            .all(|c| c.is_ascii_digit() || c == ':')
+                        {
+                            // Numeric pattern like [1:3]
+                            let parts: Vec<&str> = bracket_content.split(':').collect();
+                            if parts.len() == 2 {
+                                let start_num: i32 = parts[0].parse().map_err(|_| {
+                                    ParseError::InvalidHostPattern {
                                         pattern: self.pattern.clone(),
                                         line: 0,
                                         message: format!(
                                             "Invalid numeric pattern: {bracket_content}"
                                         ),
-                                    })?;
-                            let end_num: i32 =
-                                parts[1]
-                                    .parse()
-                                    .map_err(|_| ParseError::InvalidHostPattern {
-                                        pattern: self.pattern.clone(),
-                                        line: 0,
-                                        message: format!(
-                                            "Invalid numeric pattern: {bracket_content}"
-                                        ),
-                                    })?;
-
-                            let zero_padded = parts[0].starts_with('0') && parts[0].len() > 1;
-                            let width = if zero_padded { parts[0].len() } else { 0 };
-
-                            (start_num..=end_num)
-                                .map(|i| {
-                                    if zero_padded {
-                                        format!("{i:0width$}")
-                                    } else {
-                                        i.to_string()
                                     }
-                                })
-                                .collect()
+                                })?;
+                                let end_num: i32 = parts[1].parse().map_err(|_| {
+                                    ParseError::InvalidHostPattern {
+                                        pattern: self.pattern.clone(),
+                                        line: 0,
+                                        message: format!(
+                                            "Invalid numeric pattern: {bracket_content}"
+                                        ),
+                                    }
+                                })?;
+
+                                let zero_padded = parts[0].starts_with('0') && parts[0].len() > 1;
+                                let width = if zero_padded { parts[0].len() } else { 0 };
+
+                                (start_num..=end_num)
+                                    .map(|i| {
+                                        if zero_padded {
+                                            format!("{i:0width$}")
+                                        } else {
+                                            i.to_string()
+                                        }
+                                    })
+                                    .collect()
+                            } else {
+                                return Err(ParseError::InvalidHostPattern {
+                                    pattern: self.pattern.clone(),
+                                    line: 0,
+                                    message: format!("Invalid numeric range: {bracket_content}"),
+                                });
+                            }
                         } else {
-                            return Err(ParseError::InvalidHostPattern {
-                                pattern: self.pattern.clone(),
-                                line: 0,
-                                message: format!("Invalid numeric range: {bracket_content}"),
-                            });
+                            // Alphabetic pattern like [a:c]
+                            let parts: Vec<&str> = bracket_content.split(':').collect();
+                            if parts.len() == 2 && parts[0].len() == 1 && parts[1].len() == 1 {
+                                let start_char = parts[0].chars().next().unwrap();
+                                let end_char = parts[1].chars().next().unwrap();
+                                (start_char..=end_char).map(|c| c.to_string()).collect()
+                            } else {
+                                return Err(ParseError::InvalidHostPattern {
+                                    pattern: self.pattern.clone(),
+                                    line: 0,
+                                    message: format!("Invalid alphabetic range: {bracket_content}"),
+                                });
+                            }
                         }
                     } else {
-                        // Alphabetic pattern like [a:c]
-                        let parts: Vec<&str> = bracket_content.split(':').collect();
-                        if parts.len() == 2 && parts[0].len() == 1 && parts[1].len() == 1 {
-                            let start_char = parts[0].chars().next().unwrap();
-                            let end_char = parts[1].chars().next().unwrap();
-                            (start_char..=end_char).map(|c| c.to_string()).collect()
-                        } else {
-                            return Err(ParseError::InvalidHostPattern {
-                                pattern: self.pattern.clone(),
-                                line: 0,
-                                message: format!("Invalid alphabetic range: {bracket_content}"),
-                            });
-                        }
-                    }
-                } else {
-                    // List pattern like [red,blue,green]
-                    bracket_content
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect()
-                };
+                        // List pattern like [red,blue,green]
+                        bracket_content
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .collect()
+                    };
 
                 // Create new patterns with each expansion
                 for expansion in expansions {

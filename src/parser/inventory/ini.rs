@@ -853,7 +853,7 @@ env=production
         );
         assert_eq!(
             parser.parse_ini_value("3.14"),
-            serde_json::Value::Number(serde_json::Number::from_f64(3.14).unwrap())
+            serde_json::Value::Number(serde_json::Number::from_f64(std::f64::consts::PI).unwrap())
         );
         assert_eq!(
             parser.parse_ini_value("\"hello\""),

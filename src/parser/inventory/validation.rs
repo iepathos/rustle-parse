@@ -335,7 +335,7 @@ impl InventoryValidator {
             };
 
             // Validate port part (1-65535)
-            let port_valid = port_part.parse::<u16>().map_or(false, |p| p > 0);
+            let port_valid = port_part.parse::<u16>().is_ok_and(|p| p > 0);
 
             return ip_valid && port_valid;
         }

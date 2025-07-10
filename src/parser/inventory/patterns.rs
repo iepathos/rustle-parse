@@ -205,8 +205,7 @@ impl HostPattern {
                                         pattern: self.pattern.clone(),
                                         line: 0,
                                         message: format!(
-                                            "Invalid numeric pattern: {}",
-                                            bracket_content
+                                            "Invalid numeric pattern: {bracket_content}"
                                         ),
                                     })?;
                             let end_num: i32 =
@@ -216,8 +215,7 @@ impl HostPattern {
                                         pattern: self.pattern.clone(),
                                         line: 0,
                                         message: format!(
-                                            "Invalid numeric pattern: {}",
-                                            bracket_content
+                                            "Invalid numeric pattern: {bracket_content}"
                                         ),
                                     })?;
 
@@ -237,7 +235,7 @@ impl HostPattern {
                             return Err(ParseError::InvalidHostPattern {
                                 pattern: self.pattern.clone(),
                                 line: 0,
-                                message: format!("Invalid numeric range: {}", bracket_content),
+                                message: format!("Invalid numeric range: {bracket_content}"),
                             });
                         }
                     } else {
@@ -251,7 +249,7 @@ impl HostPattern {
                             return Err(ParseError::InvalidHostPattern {
                                 pattern: self.pattern.clone(),
                                 line: 0,
-                                message: format!("Invalid alphabetic range: {}", bracket_content),
+                                message: format!("Invalid alphabetic range: {bracket_content}"),
                             });
                         }
                     }
@@ -265,7 +263,7 @@ impl HostPattern {
 
                 // Create new patterns with each expansion
                 for expansion in expansions {
-                    new_patterns.push(format!("{}{}{}", prefix, expansion, suffix));
+                    new_patterns.push(format!("{prefix}{expansion}{suffix}"));
                 }
             }
 

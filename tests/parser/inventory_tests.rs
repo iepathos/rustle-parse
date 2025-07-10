@@ -9,8 +9,7 @@ async fn test_parse_ini_inventory() {
     let result = parser.parse_inventory(&fixture_path).await;
     assert!(
         result.is_ok(),
-        "Failed to parse INI inventory: {:?}",
-        result
+        "Failed to parse INI inventory: {result:?}"
     );
 
     let inventory = result.unwrap();

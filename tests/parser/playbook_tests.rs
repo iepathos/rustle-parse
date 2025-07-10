@@ -12,8 +12,7 @@ async fn test_parse_simple_playbook() {
     let result = parser.parse_playbook(&fixture_path).await;
     assert!(
         result.is_ok(),
-        "Failed to parse simple playbook: {:?}",
-        result
+        "Failed to parse simple playbook: {result:?}"
     );
 
     let playbook = result.unwrap();
@@ -51,7 +50,7 @@ async fn test_parse_invalid_yaml() {
 
     match result.unwrap_err() {
         ParseError::Yaml(_) => {} // Expected
-        other => panic!("Expected YAML error, got: {:?}", other),
+        other => panic!("Expected YAML error, got: {other:?}"),
     }
 }
 
@@ -83,6 +82,6 @@ async fn test_parse_nonexistent_file() {
 
     match result.unwrap_err() {
         ParseError::FileNotFound { .. } => {} // Expected
-        other => panic!("Expected FileNotFound error, got: {:?}", other),
+        other => panic!("Expected FileNotFound error, got: {other:?}"),
     }
 }

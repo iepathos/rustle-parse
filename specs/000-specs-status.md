@@ -19,6 +19,9 @@ This document tracks the status of all specification documents in the project.
 | 060 | Include Import Directives | ⬜ Planned |
 | 070 | Block Constructs Support | ⬜ Planned |
 | 080 | Variable Precedence Engine | ⬜ Planned |
+| 090 | Comprehensive Rustdoc Documentation | ⬜ Planned |
+| 100 | Complete Stub Implementations | ⬜ Planned |
+| 110 | Comprehensive Ansible Feature Tests | ⬜ Planned |
 
 
 ## Notes

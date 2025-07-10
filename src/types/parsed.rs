@@ -79,7 +79,6 @@ pub enum ExecutionStrategy {
     Custom,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedInventory {
     pub hosts: HashMap<String, ParsedHost>,

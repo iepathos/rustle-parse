@@ -164,9 +164,8 @@ mod filters {
             )
         })?;
 
-        let regex = regex::Regex::new(pattern_str).map_err(|e| {
-            Error::new(ErrorKind::InvalidOperation, format!("Invalid regex: {e}"))
-        })?;
+        let regex = regex::Regex::new(pattern_str)
+            .map_err(|e| Error::new(ErrorKind::InvalidOperation, format!("Invalid regex: {e}")))?;
 
         let result = regex.replace_all(string, replacement_str);
         Ok(Value::from(result.to_string()))

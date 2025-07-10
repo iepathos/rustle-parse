@@ -13,6 +13,12 @@ This document tracks the status of all specification documents in the project.
 | Spec | Feature | Status |
 |------|---------|--------|
 | 020 | Code Coverage Improvements | ⬜ Planned |
+| 030 | Complete INI Inventory Parsing | ⬜ Planned |
+| 040 | Ansible Vault Implementation | ⬜ Planned |
+| 050 | Enhanced Template Engine | ⬜ Planned |
+| 060 | Include Import Directives | ⬜ Planned |
+| 070 | Block Constructs Support | ⬜ Planned |
+| 080 | Variable Precedence Engine | ⬜ Planned |
 
 
 ## Notes

@@ -13,7 +13,7 @@ This document tracks the status of all specification documents in the project.
 
 | Spec | Feature | Status |
 |------|---------|--------|
-| 030 | Rustle Parse Tool | ⬜ Planned |
+| 030 | Rustle Parse Tool | ✅ Complete |
 | 040 | Rustle Plan Tool | ⬜ Planned |
 | 050 | Rustle Connect Tool | ⬜ Planned |
 | 060 | Rustle Facts Tool | ⬜ Planned |

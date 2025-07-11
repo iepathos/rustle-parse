@@ -83,7 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Level::INFO
     };
-    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(log_level)
+        .with_writer(std::io::stderr)
+        .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     // Parse extra variables

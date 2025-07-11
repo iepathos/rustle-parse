@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Glen Baker <iepathos@gmail.com>"]
 description = "A specialized YAML and inventory parser for Ansible-compatible playbooks"
 license = "GPL-3.0"
-repository = "https://github.com/rustle/rustle-parse"
+repository = "https://github.com/iepathos/rustle-parse"
 keywords = ["ansible", "yaml", "parser", "playbook", "automation"]
 categories = ["command-line-utilities", "parser-implementations"]
 

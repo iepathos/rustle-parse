@@ -267,7 +267,7 @@ This implementation follows [Specification 030: Rustle Parse Tool](specs/030-rus
 
 ## 📝 License
 
-[Add your license here]
+GPL-3.0 License - see [LICENSE](LICENSE) file for details.
 
 ---
 

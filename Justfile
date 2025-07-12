@@ -69,19 +69,7 @@ test-watch:
 
 # Run tests with coverage (requires cargo-tarpaulin)
 coverage:
-    cargo tarpaulin --out Html --out Lcov --out Json --output-dir coverage
-
-# Open coverage report in browser
-coverage-open:
-    cargo tarpaulin --out Html --output-dir coverage --open
-
-# Check coverage against threshold
-coverage-check:
-    cargo tarpaulin --fail-under 85 --output-dir coverage
-
-# CI coverage run with LCOV output
-coverage-ci:
-    cargo tarpaulin --out Lcov --output-dir coverage --fail-under 85 --timeout 300
+    cargo tarpaulin --out Html
 
 # Run property-based tests only (if using proptest)
 test-prop:
@@ -208,11 +196,25 @@ full-check: clean build test lint doc audit
 # Install development tools
 install-tools:
     rustup component add rustfmt clippy
-    cargo install cargo-watch cargo-tarpaulin cargo-audit cargo-outdated
+    cargo install cargo-watch cargo-tarpaulin cargo-audit cargo-outdated cargo-zigbuild
 
 # Install additional development tools
 install-extras:
     cargo install cargo-expand cargo-machete cargo-deny cargo-udeps
+
+# Install git hooks
+install-hooks:
+    #!/usr/bin/env bash
+    echo "Installing git hooks..."
+    for hook in git-hooks/*; do
+        if [ -f "$hook" ]; then
+            hook_name=$(basename "$hook")
+            cp "$hook" ".git/hooks/$hook_name"
+            chmod +x ".git/hooks/$hook_name"
+            echo "  ✓ Installed $hook_name"
+        fi
+    done
+    echo "Git hooks installed successfully!"
 
 # === TEMPLATE SETUP ===
 

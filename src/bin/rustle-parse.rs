@@ -1,7 +1,6 @@
 use clap::{Parser, ValueEnum};
 use rustle_parse::{OutputFormat, ParseError, Parser as RustleParser};
 use std::collections::HashMap;
-use std::io::{self, Read};
 use std::path::PathBuf;
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -229,13 +228,8 @@ fn parse_extra_vars(
 fn get_playbook_path(cli: &Cli) -> Result<PathBuf, ParseError> {
     match &cli.playbook_file {
         Some(path) if path == "-" => {
-            // Read from stdin and create a temporary file
-            let mut content = String::new();
-            io::stdin()
-                .read_to_string(&mut content)
-                .map_err(ParseError::Io)?;
-
             // For now, just return an error - stdin support needs temp file handling
+            // TODO: Implement stdin support by reading content and creating a temporary file
             Err(ParseError::UnsupportedFeature {
                 feature: "stdin input".to_string(),
             })

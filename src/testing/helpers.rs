@@ -9,7 +9,7 @@ use tempfile::{NamedTempFile, TempDir};
 pub fn create_temp_file(content: &str) -> Result<NamedTempFile> {
     let mut temp_file = NamedTempFile::new()?;
     use std::io::Write;
-    write!(temp_file, "{}", content)?;
+    write!(temp_file, "{content}")?;
     temp_file.flush()?;
     Ok(temp_file)
 }
@@ -40,9 +40,7 @@ where
             let error_string = e.to_string();
             assert!(
                 error_string.contains(expected_message),
-                "Error '{}' does not contain expected message '{}'",
-                error_string,
-                expected_message
+                "Error '{error_string}' does not contain expected message '{expected_message}'"
             );
         }
     }
@@ -76,7 +74,7 @@ where
 {
     for i in 0..iterations {
         if let Err(e) = test_fn(i) {
-            panic!("Property test failed on iteration {}: {}", i, e);
+            panic!("Property test failed on iteration {i}: {e}");
         }
     }
 }
@@ -84,7 +82,7 @@ where
 /// Assert that a closure doesn't panic with any input
 pub fn assert_no_panic<F, T>(test_fn: F, inputs: Vec<T>)
 where
-    F: Fn(T) -> (),
+    F: Fn(T),
     T: std::fmt::Debug + Clone,
 {
     for input in inputs {
@@ -94,7 +92,7 @@ where
         }));
 
         if result.is_err() {
-            panic!("Function panicked with input: {:?}", input_clone);
+            panic!("Function panicked with input: {input_clone:?}");
         }
     }
 }
@@ -127,9 +125,13 @@ impl TestTimer {
         let elapsed = self.elapsed_ms();
         assert!(
             elapsed <= max_ms,
-            "Test took {}ms, expected under {}ms",
-            elapsed,
-            max_ms
+            "Test took {elapsed}ms, expected under {max_ms}ms"
         );
+    }
+}
+
+impl Default for TestTimer {
+    fn default() -> Self {
+        Self::new()
     }
 }

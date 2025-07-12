@@ -112,13 +112,11 @@ mod tests {
             let result = validate_playbook_syntax(temp_file.path()).await;
             assert!(
                 result.is_err(),
-                "Expected error for malformed YAML scenario: {}",
-                name
+                "Expected error for malformed YAML scenario: {name}"
             );
             assert!(
                 matches!(result.unwrap_err(), ParseError::Yaml(_)),
-                "Expected YamlError for scenario: {}",
-                name
+                "Expected YamlError for scenario: {name}"
             );
         }
     }

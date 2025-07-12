@@ -104,7 +104,7 @@ impl CoverageReport {
             self.function_coverage,
             self.uncovered_lines
                 .iter()
-                .map(|(file, lines)| format!("<li>{}: {} uncovered lines</li>", file, lines))
+                .map(|(file, lines)| format!("<li>{file}: {lines} uncovered lines</li>"))
                 .collect::<Vec<_>>()
                 .join("\n")
         );

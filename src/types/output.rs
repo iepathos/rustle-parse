@@ -107,14 +107,14 @@ mod tests {
     #[test]
     fn test_output_format_debug() {
         let format = OutputFormat::Json;
-        let debug_str = format!("{:?}", format);
+        let debug_str = format!("{format:?}");
         assert_eq!(debug_str, "Json");
     }
 
     #[test]
     fn test_output_format_clone() {
         let format = OutputFormat::Binary;
-        let cloned = format.clone();
+        let cloned = format;
         assert!(matches!(cloned, OutputFormat::Binary));
     }
 

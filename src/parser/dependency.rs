@@ -76,7 +76,7 @@ mod tests {
     fn create_test_task(id: &str, dependencies: Vec<String>, notify: Vec<String>) -> ParsedTask {
         ParsedTask {
             id: id.to_string(),
-            name: format!("Task {}", id),
+            name: format!("Task {id}"),
             module: "debug".to_string(),
             args: HashMap::new(),
             vars: HashMap::new(),
@@ -95,7 +95,7 @@ mod tests {
     fn create_test_handler(id: &str) -> ParsedTask {
         ParsedTask {
             id: id.to_string(),
-            name: format!("Handler {}", id),
+            name: format!("Handler {id}"),
             module: "service".to_string(),
             args: HashMap::new(),
             vars: HashMap::new(),

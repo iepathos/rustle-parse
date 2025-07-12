@@ -1,5 +1,9 @@
 # rustle-parse
 
+[![CI](https://github.com/iepathos/rustle-parse/actions/workflows/ci.yml/badge.svg)](https://github.com/iepathos/rustle-parse/actions/workflows/ci.yml)
+[![Security](https://github.com/iepathos/rustle-parse/actions/workflows/security.yml/badge.svg)](https://github.com/iepathos/rustle-parse/actions/workflows/security.yml)
+[![Release](https://github.com/iepathos/rustle-parse/actions/workflows/release.yml/badge.svg)](https://github.com/iepathos/rustle-parse/actions/workflows/release.yml)
+
 A specialized YAML and inventory parser for Ansible-compatible playbooks that converts playbooks and inventory files into structured JSON/binary format. This tool centralizes all parsing logic into a single, focused tool that can be reused across the Rustle ecosystem.
 
 ## 🚀 Features

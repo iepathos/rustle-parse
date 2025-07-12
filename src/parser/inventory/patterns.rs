@@ -577,4 +577,230 @@ mod tests {
         assert_eq!(iter.next(), Some("web1".to_string()));
         assert_eq!(iter.next(), None);
     }
+
+    #[test]
+    fn test_lazy_iterator_alphabetic() {
+        let pattern = HostPattern::new("db[a:c]").unwrap();
+        let mut iter = pattern.expand_lazy().unwrap();
+        assert_eq!(iter.next(), Some("dba".to_string()));
+        assert_eq!(iter.next(), Some("dbb".to_string()));
+        assert_eq!(iter.next(), Some("dbc".to_string()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_lazy_iterator_list() {
+        let pattern = HostPattern::new("srv[web,db,cache]").unwrap();
+        let mut iter = pattern.expand_lazy().unwrap();
+        assert_eq!(iter.next(), Some("srvweb".to_string()));
+        assert_eq!(iter.next(), Some("srvdb".to_string()));
+        assert_eq!(iter.next(), Some("srvcache".to_string()));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_appears_to_be_pattern() {
+        let pattern1 = HostPattern::new("web1").unwrap();
+        assert!(!pattern1.appears_to_be_pattern());
+
+        // Test with valid patterns that contain brackets
+        let pattern2 = HostPattern::new("web[1:2]").unwrap();
+        assert!(pattern2.appears_to_be_pattern());
+
+        let pattern3 = HostPattern::new("db[a:c]").unwrap();
+        assert!(pattern3.appears_to_be_pattern());
+
+        // Test edge case - single item in brackets (valid)
+        let pattern4 = HostPattern::new("srv[prod]").unwrap();
+        assert!(pattern4.appears_to_be_pattern());
+    }
+
+    #[test]
+    fn test_multiple_patterns_basic() {
+        let pattern = HostPattern::new("node[1:2]-[a:b]").unwrap();
+        assert_eq!(pattern.expanded.len(), 4);
+        assert!(pattern.expanded.contains(&"node1-a".to_string()));
+        assert!(pattern.expanded.contains(&"node1-b".to_string()));
+        assert!(pattern.expanded.contains(&"node2-a".to_string()));
+        assert!(pattern.expanded.contains(&"node2-b".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_patterns_numeric() {
+        let pattern = HostPattern::new("rack[1:2]-server[01:02]").unwrap();
+        assert_eq!(pattern.expanded.len(), 4);
+        assert!(pattern.expanded.contains(&"rack1-server01".to_string()));
+        assert!(pattern.expanded.contains(&"rack1-server02".to_string()));
+        assert!(pattern.expanded.contains(&"rack2-server01".to_string()));
+        assert!(pattern.expanded.contains(&"rack2-server02".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_patterns_alphabetic() {
+        let pattern = HostPattern::new("dc[a:b]-zone[x:y]").unwrap();
+        assert_eq!(pattern.expanded.len(), 4);
+        assert!(pattern.expanded.contains(&"dca-zonex".to_string()));
+        assert!(pattern.expanded.contains(&"dca-zoney".to_string()));
+        assert!(pattern.expanded.contains(&"dcb-zonex".to_string()));
+        assert!(pattern.expanded.contains(&"dcb-zoney".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_patterns_list() {
+        let pattern = HostPattern::new("env[prod,dev]-[web,db]").unwrap();
+        assert_eq!(pattern.expanded.len(), 4);
+        assert!(pattern.expanded.contains(&"envprod-web".to_string()));
+        assert!(pattern.expanded.contains(&"envprod-db".to_string()));
+        assert!(pattern.expanded.contains(&"envdev-web".to_string()));
+        assert!(pattern.expanded.contains(&"envdev-db".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_patterns_mixed_types() {
+        let pattern = HostPattern::new("host[1:2]-[a,b]-[x:y]").unwrap();
+        assert_eq!(pattern.expanded.len(), 8); // 2 * 2 * 2
+        assert!(pattern.expanded.contains(&"host1-a-x".to_string()));
+        assert!(pattern.expanded.contains(&"host2-b-y".to_string()));
+    }
+
+    #[test]
+    fn test_multiple_patterns_adjacent_brackets_error() {
+        let result = HostPattern::new("host[1:2][a:b]");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::InvalidHostPattern { message, .. } => {
+                assert!(message.contains("Adjacent bracket patterns"));
+            }
+            _ => panic!("Expected InvalidHostPattern error"),
+        }
+    }
+
+    #[test]
+    fn test_multiple_patterns_exceed_limit() {
+        // Create a pattern that would expand to more than MAX_HOSTS_PER_PATTERN
+        let result = HostPattern::new("host[1:100]-[1:100]-[1:100]"); // Would be 100*100*100 = 1,000,000
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::InvalidHostPattern { message, .. } => {
+                assert!(message.contains("exceeds maximum"));
+            }
+            _ => panic!("Expected InvalidHostPattern error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_pattern_only_opening_bracket() {
+        let result = HostPattern::new("host[");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_pattern_only_closing_bracket() {
+        let result = HostPattern::new("host]");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::InvalidHostPattern { message, .. } => {
+                assert!(message.contains("bracket"));
+            }
+            _ => panic!("Expected InvalidHostPattern error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_pattern_multiple_validation_errors() {
+        let result = HostPattern::new("host[]]extra[");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_expansion_error() {
+        // Force an empty expansion by creating a custom test
+        // This would need internal access, so we test indirectly
+        let result = HostPattern::new("host[]");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_numeric_pattern_invalid_start_format() {
+        let result = HostPattern::new("host[abc:123]");
+        assert!(result.is_err());
+        // Simply check that it's an InvalidHostPattern error
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseError::InvalidHostPattern { .. }
+        ));
+    }
+
+    #[test]
+    fn test_numeric_pattern_invalid_end_format() {
+        let result = HostPattern::new("host[123:xyz]");
+        assert!(result.is_err());
+        // Simply check that it's an InvalidHostPattern error
+        assert!(matches!(
+            result.unwrap_err(),
+            ParseError::InvalidHostPattern { .. }
+        ));
+    }
+
+    #[test]
+    fn test_alphabetic_pattern_invalid_start() {
+        let result = HostPattern::new("host[ab:c]");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_alphabetic_pattern_invalid_end() {
+        let result = HostPattern::new("host[a:cd]");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zero_padded_multiple_patterns() {
+        let pattern = HostPattern::new("host[01:02]-[001:002]").unwrap();
+        assert_eq!(pattern.expanded.len(), 4);
+        assert!(pattern.expanded.contains(&"host01-001".to_string()));
+        assert!(pattern.expanded.contains(&"host01-002".to_string()));
+        assert!(pattern.expanded.contains(&"host02-001".to_string()));
+        assert!(pattern.expanded.contains(&"host02-002".to_string()));
+    }
+
+    #[test]
+    fn test_complex_multiple_pattern_validation() {
+        // Test with complex pattern that has many groups
+        let pattern = HostPattern::new("dc[1:2]-rack[01:02]-host[a:b]").unwrap();
+        assert_eq!(pattern.expanded.len(), 8); // 2 * 2 * 2
+    }
+
+    #[test]
+    fn test_pattern_expansion_limit_single() {
+        // Test single pattern approaching the limit
+        let result = HostPattern::new("host[1:10001]"); // Exceeds MAX_HOSTS_PER_PATTERN
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::InvalidHostPattern { message, .. } => {
+                assert!(message.contains("exceeds maximum"));
+            }
+            _ => panic!("Expected InvalidHostPattern error"),
+        }
+    }
+
+    #[test]
+    fn test_edge_case_single_item_in_brackets() {
+        let pattern = HostPattern::new("host[a]").unwrap();
+        assert_eq!(pattern.expanded, vec!["hosta"]);
+    }
+
+    #[test]
+    fn test_pattern_with_special_chars() {
+        let pattern = HostPattern::new("host-[1:2]_server").unwrap();
+        assert_eq!(pattern.expanded, vec!["host-1_server", "host-2_server"]);
+    }
+
+    #[test]
+    fn test_validate_single_pattern_with_multiple() {
+        // Indirectly test validate_single_pattern error case
+        let result = HostPattern::new("host[1:2]-[a:b]");
+        // Should succeed as new() handles multiple patterns
+        assert!(result.is_ok());
+    }
 }

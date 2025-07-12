@@ -725,12 +725,32 @@ impl<'a> IniInventoryParser<'a> {
 mod tests {
     use super::*;
     use crate::parser::template::TemplateEngine;
+    use serde_json::json;
 
     fn create_test_parser() -> IniInventoryParser<'static> {
         use once_cell::sync::Lazy;
         static TEMPLATE_ENGINE: Lazy<TemplateEngine> = Lazy::new(TemplateEngine::new);
         static EXTRA_VARS: Lazy<HashMap<String, serde_json::Value>> = Lazy::new(HashMap::new);
         IniInventoryParser::new(&TEMPLATE_ENGINE, &EXTRA_VARS)
+    }
+
+    #[test]
+    fn test_with_config_constructor() {
+        let template_engine = TemplateEngine::new();
+        let extra_vars = HashMap::new();
+        let config = InventoryParserConfig {
+            strict_mode: true,
+            expand_patterns: true,
+            max_pattern_expansion: 100,
+            validate_hosts: true,
+            resolve_dns: true,
+        };
+
+        let parser = IniInventoryParser::with_config(&template_engine, &extra_vars, config);
+        assert_eq!(parser.config.max_pattern_expansion, 100);
+        assert!(parser.config.strict_mode);
+        assert!(parser.config.validate_hosts);
+        assert!(parser.config.resolve_dns);
     }
 
     #[tokio::test]
@@ -859,5 +879,305 @@ env=production
             parser.parse_ini_value("\"hello\""),
             serde_json::Value::String("hello".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn test_host_with_inline_comment() {
+        let ini_content = r#"
+[webservers]
+web1 ansible_host=192.168.1.10 # This is a comment
+web2 ansible_host=192.168.1.11 ansible_user=admin # Another comment
+
+[databases]
+db1 # Just a comment after host
+"#;
+
+        let parser = create_test_parser();
+        let inventory = parser.parse_ini_inventory(ini_content).await.unwrap();
+
+        // Comments should be stripped
+        let web1 = inventory.hosts.get("web1").unwrap();
+        assert_eq!(web1.vars.get("ansible_host").unwrap(), "192.168.1.10");
+        assert!(!web1.vars.contains_key("#"));
+
+        let web2 = inventory.hosts.get("web2").unwrap();
+        assert_eq!(web2.vars.get("ansible_user").unwrap(), "admin");
+
+        assert!(inventory.hosts.contains_key("db1"));
+    }
+
+    #[tokio::test]
+    async fn test_strict_mode_duplicate_host_error() {
+        let ini_content = r#"
+[webservers]
+web1 ansible_host=192.168.1.10
+
+[databases]
+web1 ansible_host=192.168.1.20
+"#;
+
+        let template_engine = TemplateEngine::new();
+        let extra_vars = HashMap::new();
+        let config = InventoryParserConfig {
+            strict_mode: true,
+            ..Default::default()
+        };
+
+        let parser = IniInventoryParser::with_config(&template_engine, &extra_vars, config);
+        let result = parser.parse_ini_inventory(ini_content).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::DuplicateHost { host } => assert_eq!(host, "web1"),
+            _ => panic!("Expected DuplicateHost error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_strict_mode_unknown_child_group_error() {
+        let ini_content = r#"
+[webservers]
+web1
+
+[production:children]
+webservers
+databases  # This group doesn't exist
+"#;
+
+        let template_engine = TemplateEngine::new();
+        let extra_vars = HashMap::new();
+        let config = InventoryParserConfig {
+            strict_mode: true,
+            ..Default::default()
+        };
+
+        let parser = IniInventoryParser::with_config(&template_engine, &extra_vars, config);
+        let result = parser.parse_ini_inventory(ini_content).await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::UnknownGroup { group } => assert!(group.starts_with("databases")),
+            _ => panic!("Expected UnknownGroup error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_variable_pattern_expansion() {
+        let ini_content = r#"
+[webservers]
+web[01:03] ansible_host=192.168.1.[1:3] ansible_port=[8001:8003]
+"#;
+
+        let parser = create_test_parser();
+        let inventory = parser.parse_ini_inventory(ini_content).await.unwrap();
+
+        assert_eq!(inventory.hosts.len(), 3);
+
+        let web01 = inventory.hosts.get("web01").unwrap();
+        assert_eq!(web01.vars.get("ansible_host").unwrap(), "192.168.1.1");
+        assert_eq!(web01.vars.get("ansible_port").unwrap(), "8001");
+
+        let web02 = inventory.hosts.get("web02").unwrap();
+        assert_eq!(web02.vars.get("ansible_host").unwrap(), "192.168.1.2");
+        assert_eq!(web02.vars.get("ansible_port").unwrap(), "8002");
+
+        let web03 = inventory.hosts.get("web03").unwrap();
+        assert_eq!(web03.vars.get("ansible_host").unwrap(), "192.168.1.3");
+        assert_eq!(web03.vars.get("ansible_port").unwrap(), "8003");
+    }
+
+    #[tokio::test]
+    async fn test_variable_pattern_expansion_mismatch() {
+        let ini_content = r#"
+[webservers]
+web[01:03] ansible_host=192.168.1.[1:2] # Mismatch: 3 hosts but only 2 IPs
+"#;
+
+        let parser = create_test_parser();
+        let inventory = parser.parse_ini_inventory(ini_content).await.unwrap();
+
+        // Should fall back to using the pattern as literal value
+        let web01 = inventory.hosts.get("web01").unwrap();
+        assert_eq!(web01.vars.get("ansible_host").unwrap(), "192.168.1.[1:2]");
+    }
+
+    #[tokio::test]
+    async fn test_escaped_quotes_in_variables() {
+        let ini_content = r#"
+[webservers]
+web1 message="Hello \"World\"" path='C:\Users\test' json_data='{"key": "value with \" quote"}'
+"#;
+
+        let parser = create_test_parser();
+        let inventory = parser.parse_ini_inventory(ini_content).await.unwrap();
+
+        let web1 = inventory.hosts.get("web1").unwrap();
+        assert_eq!(web1.vars.get("message").unwrap(), "Hello \"World\"");
+        // Check that path variable exists and contains expected substring
+        let path = web1.vars.get("path").unwrap().as_str().unwrap();
+        assert!(path.contains("Users"));
+        assert!(path.contains("test"));
+        assert!(web1.vars.contains_key("json_data"));
+    }
+
+    #[tokio::test]
+    async fn test_nan_infinity_float_parsing() {
+        let ini_content = r#"
+[test]
+host1 normal_float=3.14 test_var=NaN another_var=Infinity
+"#;
+
+        let parser = create_test_parser();
+        let inventory = parser.parse_ini_inventory(ini_content).await.unwrap();
+
+        let host1 = inventory.hosts.get("host1").unwrap();
+        // Normal float should parse
+        // Check that normal_float is parsed as a JSON number
+        assert!(host1.vars.get("normal_float").unwrap().is_number());
+        // NaN and Infinity should be kept as strings since JSON doesn't support them
+        assert_eq!(host1.vars.get("test_var").unwrap(), "NaN");
+        assert_eq!(host1.vars.get("another_var").unwrap(), "Infinity");
+    }
+
+    #[tokio::test]
+    async fn test_empty_sections() {
+        let ini_content = r#"
+[webservers]
+# Empty section
+
+[databases]
+
+[production:children]
+# No children listed
+
+[all:vars]
+# No vars
+"#;
+
+        let parser = create_test_parser();
+        let inventory = parser.parse_ini_inventory(ini_content).await.unwrap();
+
+        // Empty sections should be created but with no members
+        assert!(inventory.groups.contains_key("webservers"));
+        assert!(inventory.groups.get("webservers").unwrap().hosts.is_empty());
+
+        assert!(inventory.groups.contains_key("databases"));
+        assert!(inventory.groups.get("databases").unwrap().hosts.is_empty());
+
+        assert!(inventory.groups.contains_key("production"));
+        assert!(inventory
+            .groups
+            .get("production")
+            .unwrap()
+            .children
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_malformed_section_names() {
+        // Test that malformed section causes parsing error
+        let ini_content = r#"
+[webservers
+web1
+"#;
+
+        let parser = create_test_parser();
+        let result = parser.parse_ini_inventory(ini_content).await;
+        assert!(result.is_err());
+
+        // Test valid section works
+        let valid_content = r#"
+[valid]
+host2
+"#;
+        let inventory = parser.parse_ini_inventory(valid_content).await.unwrap();
+        assert!(inventory.groups.contains_key("valid"));
+        assert!(inventory.hosts.contains_key("host2"));
+    }
+
+    #[tokio::test]
+    async fn test_strict_mode_group_with_nonexistent_host() {
+        let ini_content = r#"
+[webservers]
+web1
+nonexistent_host
+
+[hosts]
+web1 ansible_host=192.168.1.10
+"#;
+
+        let template_engine = TemplateEngine::new();
+        let extra_vars = HashMap::new();
+        let config = InventoryParserConfig {
+            strict_mode: true,
+            ..Default::default()
+        };
+
+        let parser = IniInventoryParser::with_config(&template_engine, &extra_vars, config);
+        let result = parser.parse_ini_inventory(ini_content).await;
+
+        assert!(result.is_err());
+        if let Err(ParseError::InvalidStructure { message }) = result {
+            assert!(message.contains("nonexistent_host"));
+            assert!(message.contains("webservers"));
+        } else {
+            panic!("Expected InvalidStructure error");
+        }
+    }
+
+    #[test]
+    fn test_parse_host_variables_edge_cases() {
+        let parser = create_test_parser();
+
+        // Test empty input
+        let vars = parser.parse_host_variables("").unwrap();
+        assert!(vars.is_empty());
+
+        // Test only whitespace
+        let vars = parser.parse_host_variables("   ").unwrap();
+        assert!(vars.is_empty());
+
+        // Test variable with equals in value
+        let vars = parser
+            .parse_host_variables("key=value=with=equals")
+            .unwrap();
+        assert_eq!(vars.get("key").unwrap(), "value=with=equals");
+
+        // Test consecutive spaces between variables
+        let vars = parser
+            .parse_host_variables("key1=val1    key2=val2")
+            .unwrap();
+        assert_eq!(vars.get("key1").unwrap(), "val1");
+        assert_eq!(vars.get("key2").unwrap(), "val2");
+    }
+
+    #[test]
+    fn test_parse_ini_value_comprehensive() {
+        let parser = create_test_parser();
+
+        // Test boolean values
+        assert_eq!(parser.parse_ini_value("true"), json!(true));
+        assert_eq!(parser.parse_ini_value("false"), json!(false));
+
+        // Test numbers
+        assert_eq!(parser.parse_ini_value("42"), json!(42));
+        assert_eq!(parser.parse_ini_value("3.14"), json!(3.14));
+
+        // Test strings with quotes
+        assert_eq!(parser.parse_ini_value("\"hello\""), json!("hello"));
+
+        // Test that various string values are kept as strings
+        assert_eq!(parser.parse_ini_value("null"), json!("null"));
+        assert_eq!(parser.parse_ini_value("[]"), json!("[]"));
+        assert_eq!(parser.parse_ini_value("{}"), json!("{}"));
+        assert_eq!(parser.parse_ini_value("[1,2,3]"), json!("[1,2,3]"));
+        assert_eq!(
+            parser.parse_ini_value("{\"key\":\"value\"}"),
+            json!("{\"key\":\"value\"}")
+        );
+
+        // Test edge cases
+        assert_eq!(parser.parse_ini_value(""), json!(""));
+        assert_eq!(parser.parse_ini_value("plain text"), json!("plain text"));
     }
 }

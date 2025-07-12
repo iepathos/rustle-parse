@@ -269,3 +269,195 @@ fn output_result(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_parse_extra_vars_empty() {
+        let result = parse_extra_vars(&None).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_extra_vars_single_string_value() {
+        let vars_str = Some("key=value".to_string());
+        let result = parse_extra_vars(&vars_str).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.get("key").unwrap(),
+            &serde_json::Value::String("value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_extra_vars_multiple_values() {
+        let vars_str = Some("key1=value1,key2=value2,key3=value3".to_string());
+        let result = parse_extra_vars(&vars_str).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(
+            result.get("key1").unwrap(),
+            &serde_json::Value::String("value1".to_string())
+        );
+        assert_eq!(
+            result.get("key2").unwrap(),
+            &serde_json::Value::String("value2".to_string())
+        );
+        assert_eq!(
+            result.get("key3").unwrap(),
+            &serde_json::Value::String("value3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_extra_vars_json_values() {
+        let vars_str =
+            Some(r#"str=hello,num=42,bool=true,arr=[1,2,3],obj={"key":"value"}"#.to_string());
+        let result = parse_extra_vars(&vars_str).unwrap();
+
+        assert_eq!(result.len(), 5);
+        assert_eq!(
+            result.get("str").unwrap(),
+            &serde_json::Value::String("hello".to_string())
+        );
+        assert_eq!(result.get("num").unwrap(), &serde_json::json!(42));
+        assert_eq!(result.get("bool").unwrap(), &serde_json::json!(true));
+        assert_eq!(result.get("arr").unwrap(), &serde_json::json!([1, 2, 3]));
+        assert_eq!(
+            result.get("obj").unwrap(),
+            &serde_json::json!({"key": "value"})
+        );
+    }
+
+    #[test]
+    fn test_parse_extra_vars_with_whitespace() {
+        let vars_str = Some("  key1  =  value1  ,  key2 = value2  ".to_string());
+        let result = parse_extra_vars(&vars_str).unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get("key1").unwrap(),
+            &serde_json::Value::String("value1".to_string())
+        );
+        assert_eq!(
+            result.get("key2").unwrap(),
+            &serde_json::Value::String("value2".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_extra_vars_malformed_entries() {
+        let vars_str = Some("valid=value,no_equals_sign,another_valid=test".to_string());
+        let result = parse_extra_vars(&vars_str).unwrap();
+
+        // Only valid entries should be parsed
+        assert_eq!(result.len(), 2);
+        assert_eq!(
+            result.get("valid").unwrap(),
+            &serde_json::Value::String("value".to_string())
+        );
+        assert_eq!(
+            result.get("another_valid").unwrap(),
+            &serde_json::Value::String("test".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_extra_vars_empty_string() {
+        let vars_str = Some("".to_string());
+        let result = parse_extra_vars(&vars_str).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_get_playbook_path_from_arg() {
+        let cli = Cli {
+            playbook_file: Some("test.yml".to_string()),
+            inventory: None,
+            extra_vars: None,
+            output: OutputFormatCli::Json,
+            cache_dir: None,
+            vault_password_file: None,
+            syntax_check: false,
+            list_tasks: false,
+            list_hosts: false,
+            verbose: false,
+            dry_run: false,
+        };
+
+        let result = get_playbook_path(&cli).unwrap();
+        assert_eq!(result, PathBuf::from("test.yml"));
+    }
+
+    #[test]
+    fn test_get_playbook_path_stdin() {
+        let cli = Cli {
+            playbook_file: Some("-".to_string()),
+            inventory: None,
+            extra_vars: None,
+            output: OutputFormatCli::Json,
+            cache_dir: None,
+            vault_password_file: None,
+            syntax_check: false,
+            list_tasks: false,
+            list_hosts: false,
+            verbose: false,
+            dry_run: false,
+        };
+
+        let result = get_playbook_path(&cli);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::UnsupportedFeature { feature } => {
+                assert_eq!(feature, "stdin input");
+            }
+            _ => panic!("Expected UnsupportedFeature error"),
+        }
+    }
+
+    #[test]
+    fn test_get_playbook_path_none() {
+        let cli = Cli {
+            playbook_file: None,
+            inventory: None,
+            extra_vars: None,
+            output: OutputFormatCli::Json,
+            cache_dir: None,
+            vault_password_file: None,
+            syntax_check: false,
+            list_tasks: false,
+            list_hosts: false,
+            verbose: false,
+            dry_run: false,
+        };
+
+        let result = get_playbook_path(&cli);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::InvalidStructure { message } => {
+                assert_eq!(message, "No playbook file specified");
+            }
+            _ => panic!("Expected InvalidStructure error"),
+        }
+    }
+
+    #[test]
+    fn test_output_format_conversion() {
+        assert!(matches!(
+            OutputFormat::from(OutputFormatCli::Json),
+            OutputFormat::Json
+        ));
+        assert!(matches!(
+            OutputFormat::from(OutputFormatCli::Binary),
+            OutputFormat::Binary
+        ));
+        assert!(matches!(
+            OutputFormat::from(OutputFormatCli::Yaml),
+            OutputFormat::Yaml
+        ));
+    }
+}

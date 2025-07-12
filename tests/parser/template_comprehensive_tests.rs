@@ -533,6 +533,7 @@ fn test_template_with_unicode() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_json_value_conversion() {
     let engine = TemplateEngine::new();
     let mut vars = HashMap::new();

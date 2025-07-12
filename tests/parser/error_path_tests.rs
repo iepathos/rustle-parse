@@ -115,7 +115,7 @@ fn test_vault_decryptor_error_message() {
 
     match result.unwrap_err() {
         ParseError::UnsupportedFeature { feature } => {
-            assert!(feature.contains("not yet implemented"));
+            assert!(feature.contains("Vault decryption"));
         }
         _ => panic!("Expected UnsupportedFeature error"),
     }
@@ -317,19 +317,19 @@ fn test_parse_error_display() {
     let file_not_found = ParseError::FileNotFound {
         path: "/test/path".to_string(),
     };
-    assert!(format!("{}", file_not_found).contains("/test/path"));
+    assert!(format!("{file_not_found}").contains("/test/path"));
 
     let invalid_structure = ParseError::InvalidStructure {
         message: "test message".to_string(),
     };
-    assert!(format!("{}", invalid_structure).contains("test message"));
+    assert!(format!("{invalid_structure}").contains("test message"));
 
     let template_error = ParseError::Template {
         file: "test.yml".to_string(),
         line: 10,
         message: "undefined variable".to_string(),
     };
-    let error_str = format!("{}", template_error);
+    let error_str = format!("{template_error}");
     assert!(error_str.contains("test.yml"));
     assert!(error_str.contains("10"));
     assert!(error_str.contains("undefined variable"));
@@ -337,7 +337,7 @@ fn test_parse_error_display() {
     let unsupported_feature = ParseError::UnsupportedFeature {
         feature: "test feature".to_string(),
     };
-    assert!(format!("{}", unsupported_feature).contains("test feature"));
+    assert!(format!("{unsupported_feature}").contains("test feature"));
 }
 
 #[test]
@@ -395,7 +395,7 @@ fn test_error_debug_format() {
         message: "test debug format".to_string(),
     };
 
-    let debug_str = format!("{:?}", error);
+    let debug_str = format!("{error:?}");
     assert!(debug_str.contains("InvalidStructure"));
     assert!(debug_str.contains("test debug format"));
 }

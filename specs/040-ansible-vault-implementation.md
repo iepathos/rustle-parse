@@ -1,168 +1,169 @@
-# Spec 040: Ansible Vault Implementation
+# Spec 040: Vault Integration for Modular Architecture
 
 ## Feature Summary
 
-Implement complete Ansible Vault support for encrypting and decrypting sensitive data in playbooks and inventory files. This includes support for vault passwords, multiple vault IDs, encrypted strings, encrypted files, and integration with the template engine for runtime decryption.
+**UPDATED**: This spec has been revised to reflect the modular architecture design. Vault functionality will be implemented as a separate `rustle-vault` tool, with rustle-parse providing integration markers and basic vault detection.
 
-**Problem it solves**: The current vault implementation is a placeholder that returns an error. Real Ansible projects use vault encryption for passwords, API keys, and other sensitive data that must be decrypted during playbook parsing and execution.
+Implement vault integration markers in rustle-parse to identify vault-encrypted content and defer decryption to the specialized `rustle-vault` tool. This maintains separation of concerns while enabling seamless vault support in the parsing pipeline.
 
-**High-level approach**: Implement AES-256 encryption/decryption compatible with Ansible's vault format, support multiple vault IDs, integrate with password sources, and provide seamless decryption during template resolution.
+**Problem it solves**: The current vault implementation is a placeholder. Real Ansible projects use vault encryption, but cryptographic operations should be isolated in a dedicated tool for security and modularity.
+
+**High-level approach**: Implement vault content detection and marker generation in rustle-parse, with pipeline integration to `rustle-vault` for actual decryption operations.
 
 ## Goals & Requirements
 
-### Functional Requirements
-- Decrypt Ansible vault-encrypted strings and files
+### Functional Requirements (rustle-parse)
+- Detect Ansible vault-encrypted content in YAML
+- Generate vault markers with location and metadata
+- Support vault format identification (1.1, 1.2, 2.0)
+- Extract vault IDs from encrypted content
+- Preserve vault content in parsed output for pipeline processing
+- Handle vault content in templates, variables, and files
+
+### Functional Requirements (rustle-vault - separate tool)
+- Decrypt all Ansible vault formats
 - Support multiple vault IDs and password sources
-- Handle vault format versions (1.1, 1.2, 2.0)
-- Integrate with template engine for runtime decryption
-- Support vault password files and interactive prompts
+- Handle password files and interactive prompts
 - Validate vault data integrity with HMAC
-- Cache decrypted content for performance
-- Support vault variables in inventories and playbooks
+- Process vault markers from rustle-parse output
 
 ### Non-functional Requirements
-- **Security**: Use secure cryptographic libraries and practices
-- **Performance**: Cache decrypted content, decrypt on-demand
+- **Security**: Cryptographic operations isolated in rustle-vault
+- **Performance**: Streaming integration between tools
 - **Compatibility**: 100% compatible with Ansible vault format
-- **Memory Safety**: Secure memory handling for passwords and decrypted data
-- **Error Handling**: Clear errors for decryption failures
+- **Modularity**: Clean separation of parsing and cryptographic concerns
+- **Error Handling**: Clear errors with fallback strategies
 
 ### Success Criteria
-- All Ansible vault formats decrypt correctly
-- Multi-vault-ID scenarios work properly
-- Integration with templates and variables
-- Secure password handling and memory management
-- Performance acceptable for large vaults
+- Vault content properly detected and marked in rustle-parse
+- Seamless integration with rustle-vault tool
+- Pipeline processing works correctly
+- Error handling and fallback to SSH execution
+- Performance acceptable with tool composition
 
 ## API/Interface Design
 
-### Vault Decryption Interface
+### Vault Detection Interface (rustle-parse)
 ```rust
-use ring::aead;
-use ring::pbkdf2;
-use ring::hmac;
+use serde::{Deserialize, Serialize};
 
-pub struct VaultDecryptor {
-    passwords: HashMap<Option<String>, String>, // vault_id -> password
-    cache: LruCache<String, String>,            // content_hash -> decrypted_content
-}
+/// Vault content detector for rustle-parse
+pub struct VaultDetector;
 
-impl VaultDecryptor {
-    /// Create new vault decryptor with passwords
-    pub fn new() -> Self;
-    
-    /// Add password for default vault ID
-    pub fn add_password(&mut self, password: String);
-    
-    /// Add password for specific vault ID
-    pub fn add_vault_password(&mut self, vault_id: String, password: String);
-    
-    /// Load password from file
-    pub async fn load_password_file(&mut self, vault_id: Option<String>, path: &Path) -> Result<(), VaultError>;
-    
-    /// Decrypt vault-encrypted content
-    pub fn decrypt(&self, encrypted_content: &str) -> Result<String, VaultError>;
-    
-    /// Decrypt vault-encrypted content with specific vault ID
-    pub fn decrypt_with_id(&self, encrypted_content: &str, vault_id: &str) -> Result<String, VaultError>;
-    
+impl VaultDetector {
     /// Check if content is vault-encrypted
     pub fn is_vault_encrypted(content: &str) -> bool;
     
-    /// Extract vault ID from encrypted content
-    pub fn extract_vault_id(content: &str) -> Option<String>;
+    /// Extract vault metadata without decryption
+    pub fn extract_metadata(content: &str) -> Result<VaultMetadata, ParseError>;
     
-    /// Validate vault format and integrity
-    pub fn validate_vault_content(content: &str) -> Result<VaultMetadata, VaultError>;
+    /// Create vault marker for pipeline processing
+    pub fn create_marker(content: &str, location: String) -> Result<VaultMarker, ParseError>;
 }
 
-/// Vault content metadata
-#[derive(Debug, Clone)]
+/// Vault marker for inter-tool communication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultMarker {
+    pub location: String,              // JSONPath to vault content
+    pub vault_id: Option<String>,      // Extracted vault ID
+    pub format_version: VaultFormatVersion,
+    pub encrypted_data: String,        // Original encrypted content
+}
+
+/// Vault content metadata (parsing only)
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultMetadata {
     pub vault_id: Option<String>,
     pub format_version: VaultFormatVersion,
     pub cipher: String,
-    pub key_length: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum VaultFormatVersion {
     V1_1,
     V1_2, 
     V2_0,
 }
+
+/// Enhanced parsed output with vault markers
+#[derive(Serialize, Deserialize)]
+pub struct ParsedOutput {
+    pub playbook: ParsedPlaybook,
+    pub vault_markers: Vec<VaultMarker>,
+    pub template_markers: Vec<TemplateMarker>,
+    pub metadata: ParseMetadata,
+}
+```
+
+### rustle-vault Tool Interface (separate tool)
+```bash
+# CLI interface for rustle-vault tool
+rustle-vault decrypt [OPTIONS] [INPUT]
+rustle-vault encrypt [OPTIONS] [INPUT] 
+rustle-vault resolve-markers [OPTIONS] < parsed.json > resolved.json
+rustle-vault scan-and-decrypt [OPTIONS] playbook.yml
+
+# Integration with rustle-parse
+rustle-parse playbook.yml --defer-vault | rustle-vault resolve-markers --password-file vault-pass
 ```
 
 ### Integration with Template Engine
 ```rust
 impl TemplateEngine {
-    /// Render value with vault decryption support
-    pub fn render_value_with_vault(
+    /// Create template marker for vault content in templates
+    pub fn create_template_marker_for_vault(
         &self,
-        value: &serde_json::Value,
-        vars: &HashMap<String, serde_json::Value>,
-        vault_decryptor: Option<&VaultDecryptor>,
-    ) -> Result<serde_json::Value, ParseError>;
+        template_expr: &str,
+        location: String,
+    ) -> Result<TemplateMarker, ParseError>;
     
-    /// Check if string contains vault-encrypted content
-    fn contains_vault_content(&self, content: &str) -> bool;
+    /// Check if template contains vault variables
+    fn contains_vault_variables(&self, template: &str) -> bool;
     
-    /// Decrypt vault content in template context
-    fn decrypt_vault_content(&self, content: &str, vault_decryptor: &VaultDecryptor) -> Result<String, ParseError>;
+    /// Extract vault-related variable dependencies
+    fn extract_vault_dependencies(&self, template: &str) -> Vec<String>;
 }
 ```
 
-### Vault Error Types
+### Error Types (rustle-parse integration)
 ```rust
 #[derive(Debug, Error)]
-pub enum VaultError {
+pub enum VaultDetectionError {
     #[error("Invalid vault format: {message}")]
     InvalidFormat { message: String },
-    
-    #[error("Vault decryption failed: {message}")]
-    DecryptionFailed { message: String },
-    
-    #[error("No password provided for vault ID '{vault_id}'")]
-    NoPassword { vault_id: String },
-    
-    #[error("Invalid vault password for vault ID '{vault_id}'")]
-    InvalidPassword { vault_id: String },
     
     #[error("Unsupported vault format version: {version}")]
     UnsupportedVersion { version: String },
     
-    #[error("Vault integrity check failed")]
-    IntegrityCheckFailed,
-    
-    #[error("IO error reading vault password file: {0}")]
-    IoError(#[from] std::io::Error),
-    
-    #[error("Base64 decode error: {0}")]
+    #[error("Base64 decode error in vault header: {0}")]
     Base64Error(#[from] base64::DecodeError),
     
-    #[error("UTF-8 decode error: {0}")]
+    #[error("UTF-8 decode error in vault header: {0}")]
     Utf8Error(#[from] std::str::Utf8Error),
+}
+
+// Integrate into existing ParseError
+impl From<VaultDetectionError> for ParseError {
+    fn from(err: VaultDetectionError) -> Self {
+        ParseError::VaultDetection {
+            message: err.to_string(),
+        }
+    }
 }
 ```
 
 ## File and Package Structure
 
-### New Vault Module Structure
+### Vault Detection Module Structure (rustle-parse only)
 ```
 src/
 ├── parser/
-│   ├── vault/
-│   │   ├── mod.rs                 # Vault module exports
-│   │   ├── decryptor.rs           # Main vault decryption logic
-│   │   ├── crypto.rs              # Cryptographic primitives
-│   │   ├── format.rs              # Vault format parsing
-│   │   ├── password.rs            # Password source handling
-│   │   └── cache.rs               # Decryption result caching
-│   ├── vault.rs                   # Main vault interface (enhanced)
-│   ├── template.rs                # Enhanced with vault support
-│   └── error.rs                   # Add VaultError integration
+│   ├── vault.rs                   # Vault detection and marker creation
+│   ├── template.rs                # Template marker creation
+│   └── error.rs                   # Add VaultDetectionError integration
 ├── types/
-│   └── vault.rs                   # Vault-related types
+│   ├── parsed.rs                  # Enhanced with vault/template markers
+│   └── vault.rs                   # Vault marker types
 └── ...
 
 tests/
@@ -170,53 +171,47 @@ tests/
 │   ├── vault/
 │   │   ├── encrypted_strings.txt  # Various encrypted string examples
 │   │   ├── encrypted_files/       # Full encrypted YAML files
-│   │   ├── passwords/             # Test password files
 │   │   └── multi_vault/           # Multi-vault-ID scenarios
 │   └── playbooks/
 │       └── with_vault.yml         # Playbooks using vault variables
 └── parser/
-    ├── vault_tests.rs             # Comprehensive vault tests
-    └── vault_integration_tests.rs # Integration with parsing
+    ├── vault_detection_tests.rs   # Vault detection tests
+    └── vault_integration_tests.rs # Integration marker tests
 ```
 
 ### Enhanced Existing Files
-- `src/parser/mod.rs`: Export vault functionality
-- `src/parser/template.rs`: Add vault decryption support
-- `src/parser/error.rs`: Integrate VaultError
-- `src/types/parsed.rs`: Add vault metadata to parsed structures
+- `src/parser/mod.rs`: Export vault detection functionality
+- `src/parser/template.rs`: Add vault marker support
+- `src/parser/error.rs`: Integrate VaultDetectionError
+- `src/types/parsed.rs`: Add vault and template markers
+- `src/bin/rustle-parse.rs`: Add CLI flags for vault integration
 
 ## Implementation Details
 
-### Phase 1: Vault Format Parsing
+### Phase 1: Vault Detection (rustle-parse)
 ```rust
-// src/parser/vault/format.rs
+// src/parser/vault.rs - Detection only, no decryption
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
-#[derive(Debug)]
-pub struct VaultContent {
-    pub vault_id: Option<String>,
-    pub format_version: VaultFormatVersion,
-    pub cipher: String,
-    pub salt: Vec<u8>,
-    pub hmac: Vec<u8>,
-    pub ciphertext: Vec<u8>,
-}
-
-impl VaultContent {
-    pub fn parse(content: &str) -> Result<Self, VaultError> {
+impl VaultDetector {
+    pub fn is_vault_encrypted(content: &str) -> bool {
+        content.trim().starts_with("$ANSIBLE_VAULT;")
+    }
+    
+    pub fn extract_metadata(content: &str) -> Result<VaultMetadata, ParseError> {
         let content = content.trim();
         
         // Check for vault marker
-        if !content.starts_with("$ANSIBLE_VAULT;") {
-            return Err(VaultError::InvalidFormat {
-                message: "Content does not start with $ANSIBLE_VAULT marker".to_string(),
+        if !Self::is_vault_encrypted(content) {
+            return Err(ParseError::VaultDetection {
+                message: "Content is not vault-encrypted".to_string(),
             });
         }
         
-        // Parse header line
+        // Parse header line only (no decryption)
         let lines: Vec<&str> = content.lines().collect();
         if lines.is_empty() {
-            return Err(VaultError::InvalidFormat {
+            return Err(ParseError::VaultDetection {
                 message: "Empty vault content".to_string(),
             });
         }
@@ -224,25 +219,31 @@ impl VaultContent {
         let header = lines[0];
         let (format_version, vault_id) = Self::parse_header(header)?;
         
-        // Parse vault body (base64 encoded)
-        let body_lines: Vec<&str> = lines[1..].iter().cloned().collect();
-        let body = body_lines.join("");
-        let decoded = BASE64.decode(body)?;
-        
-        match format_version {
-            VaultFormatVersion::V1_1 => Self::parse_v1_1(decoded, vault_id),
-            VaultFormatVersion::V1_2 => Self::parse_v1_2(decoded, vault_id),
-            VaultFormatVersion::V2_0 => Self::parse_v2_0(decoded, vault_id),
-        }
+        Ok(VaultMetadata {
+            vault_id,
+            format_version,
+            cipher: "AES256".to_string(), // Standard for all versions
+        })
     }
     
-    fn parse_header(header: &str) -> Result<(VaultFormatVersion, Option<String>), VaultError> {
+    pub fn create_marker(content: &str, location: String) -> Result<VaultMarker, ParseError> {
+        let metadata = Self::extract_metadata(content)?;
+        
+        Ok(VaultMarker {
+            location,
+            vault_id: metadata.vault_id,
+            format_version: metadata.format_version,
+            encrypted_data: content.to_string(),
+        })
+    }
+    
+    fn parse_header(header: &str) -> Result<(VaultFormatVersion, Option<String>), ParseError> {
         // Format: $ANSIBLE_VAULT;1.1;AES256
         // Or: $ANSIBLE_VAULT;1.2;AES256;vault_id
         let parts: Vec<&str> = header.split(';').collect();
         
         if parts.len() < 3 {
-            return Err(VaultError::InvalidFormat {
+            return Err(ParseError::VaultDetection {
                 message: "Invalid vault header format".to_string(),
             });
         }
@@ -251,8 +252,8 @@ impl VaultContent {
             "1.1" => VaultFormatVersion::V1_1,
             "1.2" => VaultFormatVersion::V1_2,
             "2.0" => VaultFormatVersion::V2_0,
-            v => return Err(VaultError::UnsupportedVersion {
-                version: v.to_string(),
+            v => return Err(ParseError::VaultDetection {
+                message: format!("Unsupported vault format version: {}", v),
             }),
         };
         
@@ -263,28 +264,6 @@ impl VaultContent {
         };
         
         Ok((version, vault_id))
-    }
-    
-    fn parse_v1_1(data: Vec<u8>, vault_id: Option<String>) -> Result<VaultContent, VaultError> {
-        // Format: salt + hmac + ciphertext
-        if data.len() < 80 { // 32 salt + 32 hmac + min ciphertext
-            return Err(VaultError::InvalidFormat {
-                message: "Vault data too short".to_string(),
-            });
-        }
-        
-        let salt = data[0..32].to_vec();
-        let hmac = data[32..64].to_vec();
-        let ciphertext = data[64..].to_vec();
-        
-        Ok(VaultContent {
-            vault_id,
-            format_version: VaultFormatVersion::V1_1,
-            cipher: "AES256".to_string(),
-            salt,
-            hmac,
-            ciphertext,
-        })
     }
 }
 ```

@@ -1,38 +1,45 @@
-# Spec 050: Enhanced Template Engine
+# Spec 050: Template Engine Split for Modular Architecture
 
 ## Feature Summary
 
-Expand the template engine to support the complete set of Ansible filters, functions, and template features. This includes adding missing filters, improving Jinja2 compatibility, supporting complex expressions, and enhancing template context management for full Ansible template compatibility.
+**UPDATED**: This spec has been revised to reflect the modular architecture design. Template functionality will be split between rustle-parse (basic templating needed during parsing) and a separate `rustle-template` tool (advanced template processing).
 
-**Problem it solves**: The current template engine only supports basic filters (default, mandatory, regex_replace, etc.). Real Ansible playbooks use dozens of additional filters for data manipulation, formatting, encoding, and complex transformations that are currently unsupported.
+Split template engine functionality to maintain basic templating in rustle-parse for variable resolution during parsing, while moving advanced template processing to the specialized `rustle-template` tool. This enables better performance optimization and separation of concerns.
 
-**High-level approach**: Extend the minijinja-based template engine with comprehensive Ansible filter implementations, add template context management, improve error handling with line numbers, and ensure 100% compatibility with Ansible's template syntax.
+**Problem it solves**: The current template engine only supports basic filters. Real Ansible playbooks use dozens of additional filters, but complex template processing should be separated from core parsing for modularity and performance.
+
+**High-level approach**: Keep essential templating in rustle-parse for variable resolution, implement template markers for complex expressions, and create pipeline integration with `rustle-template` for advanced processing.
 
 ## Goals & Requirements
 
-### Functional Requirements
-- Implement all standard Ansible filters (50+ filters)
+### Functional Requirements (rustle-parse)
+- Support basic template expressions needed during parsing
+- Implement essential filters: default, mandatory, regex_replace
+- Create template markers for complex expressions
+- Handle simple variable substitution in YAML parsing
+- Detect when templates require advanced processing
+
+### Functional Requirements (rustle-template - separate tool)
+- Implement complete set of Ansible filters (50+ filters)
 - Support complex template expressions and nested filters
 - Add template context management with proper variable scoping
 - Implement Ansible-specific template functions and tests
+- Process template markers from rustle-parse output
 - Support template inheritance and macros
-- Handle template errors with accurate line/column information
-- Support conditional expressions and loops in templates
-- Add custom filter registration for extensibility
 
 ### Non-functional Requirements
-- **Performance**: Template rendering <10ms for typical templates
-- **Memory**: Efficient memory usage for large template contexts
+- **Performance**: Fast parsing with deferred complex templating
+- **Modularity**: Clean separation between parsing and templating
 - **Compatibility**: 100% compatible with Ansible template syntax
-- **Error Handling**: Clear error messages with context
-- **Security**: Safe template execution with no code injection
+- **Pipeline Integration**: Seamless tool composition
+- **Error Handling**: Clear errors with fallback strategies
 
 ### Success Criteria
-- All Ansible filters implemented and tested
-- Complex real-world templates render correctly
-- Template errors provide actionable information
-- Performance meets requirements for large playbooks
-- Full compatibility with Ansible template test suite
+- Basic templating works correctly in rustle-parse
+- Complex templating handled properly by rustle-template
+- Pipeline integration functions smoothly
+- Performance improved through specialization
+- Full compatibility maintained across tool boundary
 
 ## API/Interface Design
 

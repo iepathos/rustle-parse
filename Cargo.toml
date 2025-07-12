@@ -71,3 +71,17 @@ opt-level = 3
 [profile.dev]
 opt-level = 0
 
+[workspace.metadata.tarpaulin]
+coverage-reports = ["Html", "Lcov", "Json"]
+output-dir = "coverage/"
+exclude-files = [
+    "target/*",
+    "tests/*",
+    "benches/*",
+    "examples/*",
+    "src/bin/*",
+]
+timeout = 300
+fail-under = 85
+features = "default"
+

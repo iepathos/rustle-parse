@@ -69,7 +69,19 @@ test-watch:
 
 # Run tests with coverage (requires cargo-tarpaulin)
 coverage:
-    cargo tarpaulin --out Html
+    cargo tarpaulin --out Html --out Lcov --out Json --output-dir coverage
+
+# Open coverage report in browser
+coverage-open:
+    cargo tarpaulin --out Html --output-dir coverage --open
+
+# Check coverage against threshold
+coverage-check:
+    cargo tarpaulin --fail-under 85 --output-dir coverage
+
+# CI coverage run with LCOV output
+coverage-ci:
+    cargo tarpaulin --out Lcov --output-dir coverage --fail-under 85 --timeout 300
 
 # Run property-based tests only (if using proptest)
 test-prop:

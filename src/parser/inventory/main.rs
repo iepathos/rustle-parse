@@ -61,9 +61,13 @@ impl<'a> InventoryParser<'a> {
                 // Try to auto-detect format
                 if content.trim_start().starts_with('{') {
                     self.parse_json_inventory(&content).await
-                } else if content.contains("---") || content.contains(":") {
+                } else if content.contains("---") || content.trim_start().starts_with("all:") {
                     self.parse_yaml_inventory(&content).await
+                } else if content.contains('[') && content.contains(']') {
+                    // INI format sections like [webservers]
+                    self.parse_ini_inventory(&content).await
                 } else {
+                    // Default to INI for simple host lists
                     self.parse_ini_inventory(&content).await
                 }
             }

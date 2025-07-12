@@ -98,11 +98,20 @@ where
 }
 
 /// Helper to verify file permissions (for security testing)
+#[cfg(unix)]
 pub fn check_file_permissions(path: &Path) -> Result<u32> {
     use std::os::unix::fs::PermissionsExt;
     let metadata = fs::metadata(path)?;
     let permissions = metadata.permissions();
     Ok(permissions.mode())
+}
+
+/// Helper to verify file permissions (for security testing)
+/// Windows version - returns 0 as permissions concept differs
+#[cfg(windows)]
+pub fn check_file_permissions(path: &Path) -> Result<u32> {
+    let _metadata = fs::metadata(path)?; // Verify file exists
+    Ok(0) // Windows permissions work differently, return 0 as placeholder
 }
 
 /// Utility for measuring test execution time

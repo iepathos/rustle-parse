@@ -9,6 +9,7 @@ This document tracks the status of all specification documents in the project.
 | Spec | Feature | Status |
 |------|---------|--------|
 | 010 | Rustle Parse Tool | ✅ Complete |
+| 020 | Code Coverage Improvements | ✅ Complete |
 | 030 | Complete INI Inventory Parsing | ✅ Complete |
 
 ## Updated Specs (Modular Architecture)
@@ -23,7 +24,6 @@ This document tracks the status of all specification documents in the project.
 
 | Spec | Feature | Status |
 |------|---------|--------|
-| 020 | Code Coverage Improvements | ⬜ Planned |
 | 060 | Include Import Directives | ⬜ Planned |
 | 070 | Block Constructs Support | ⬜ Planned |
 | 080 | Variable Precedence Engine | ⬜ Planned |

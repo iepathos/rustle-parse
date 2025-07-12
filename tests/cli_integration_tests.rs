@@ -503,3 +503,162 @@ fn test_cli_complex_extra_vars() {
         .success()
         .stdout(predicate::str::contains("Test playbook"));
 }
+
+#[test]
+fn test_cli_vault_password_file_empty() {
+    let vault_file = NamedTempFile::new().unwrap();
+    // Write empty content to vault file
+    fs::write(&vault_file, "").unwrap();
+
+    let playbook_content = r#"
+---
+- name: Test playbook
+  hosts: localhost
+  tasks:
+    - name: Test task
+      debug:
+        msg: "Hello World"
+"#;
+
+    let playbook_file = create_temp_playbook(playbook_content);
+
+    let mut cmd = Command::cargo_bin("rustle-parse").unwrap();
+    cmd.arg(playbook_file.path())
+        .arg("--vault-password-file")
+        .arg(vault_file.path());
+
+    // Empty vault file should be handled gracefully
+    cmd.assert().success();
+}
+
+#[test]
+fn test_cli_vault_password_file_directory_error() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let playbook_content = r#"
+---
+- name: Test playbook
+  hosts: localhost
+  tasks:
+    - name: Test task
+      debug:
+        msg: "Hello World"
+"#;
+
+    let playbook_file = create_temp_playbook(playbook_content);
+
+    let mut cmd = Command::cargo_bin("rustle-parse").unwrap();
+    cmd.arg(playbook_file.path())
+        .arg("--vault-password-file")
+        .arg(temp_dir.path()); // Pass directory instead of file
+
+    cmd.assert().failure().stderr(
+        predicate::str::contains("Is a directory").or(predicate::str::contains("Access is denied")),
+    );
+}
+
+#[test]
+fn test_cli_vault_password_file_whitespace_only() {
+    let vault_file = NamedTempFile::new().unwrap();
+    // Write only whitespace to vault file
+    fs::write(&vault_file, "   \n\t  \n  ").unwrap();
+
+    let playbook_content = r#"
+---
+- name: Test playbook
+  hosts: localhost
+  tasks:
+    - name: Test task
+      debug:
+        msg: "Hello World"
+"#;
+
+    let playbook_file = create_temp_playbook(playbook_content);
+
+    let mut cmd = Command::cargo_bin("rustle-parse").unwrap();
+    cmd.arg(playbook_file.path())
+        .arg("--vault-password-file")
+        .arg(vault_file.path());
+
+    // Whitespace-only vault file should be handled gracefully (trimmed to empty)
+    cmd.assert().success();
+}
+
+#[test]
+fn test_cli_syntax_check_exit_code_on_failure() {
+    let invalid_playbook = r#"
+---
+- name: Invalid playbook
+  hosts: localhost
+  tasks:
+    - name: Invalid YAML structure
+      module_name: [unclosed_array
+"#;
+
+    let playbook_file = create_temp_playbook(invalid_playbook);
+
+    let mut cmd = Command::cargo_bin("rustle-parse").unwrap();
+    cmd.arg(playbook_file.path()).arg("--syntax-check");
+
+    // Should exit with non-zero code for invalid syntax
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Yaml").or(predicate::str::contains("Error")));
+}
+
+#[test]
+fn test_cli_list_hosts_invalid_inventory_format() {
+    let playbook_content = r#"
+---
+- name: Test playbook
+  hosts: localhost
+  tasks:
+    - name: Test task
+      debug:
+        msg: "Hello World"
+"#;
+
+    let invalid_inventory = r#"
+{
+  "invalid": "json structure for inventory"
+  "missing_comma": true
+}
+"#;
+
+    let playbook_file = create_temp_playbook(playbook_content);
+    let inventory_file = create_temp_inventory(invalid_inventory);
+
+    let mut cmd = Command::cargo_bin("rustle-parse").unwrap();
+    cmd.arg(playbook_file.path())
+        .arg("--inventory")
+        .arg(inventory_file.path())
+        .arg("--list-hosts");
+
+    // Should handle invalid inventory gracefully
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Json").or(predicate::str::contains("Error")));
+}
+
+#[test]
+fn test_cli_binary_output_not_implemented_error() {
+    let playbook_content = r#"
+---
+- name: Test playbook
+  hosts: localhost
+  tasks:
+    - name: Test task
+      debug:
+        msg: "Hello World"
+"#;
+
+    let playbook_file = create_temp_playbook(playbook_content);
+
+    let mut cmd = Command::cargo_bin("rustle-parse").unwrap();
+    cmd.arg(playbook_file.path()).arg("--output").arg("binary");
+
+    // Binary output should return not implemented error
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "Binary output format not yet implemented",
+    ));
+}

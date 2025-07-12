@@ -134,4 +134,26 @@ mod tests {
             );
         }
     }
+
+    #[tokio::test]
+    async fn test_validate_playbook_syntax_non_array_structure() {
+        let non_array_yaml = r#"
+name: This is not a playbook
+description: A playbook must be an array of plays
+hosts: localhost
+tasks:
+  - name: Example task
+    debug:
+      msg: "This won't work"
+"#;
+        let temp_file = create_temp_file(non_array_yaml).unwrap();
+        let result = validate_playbook_syntax(temp_file.path()).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ParseError::InvalidStructure { message } => {
+                assert_eq!(message, "Playbook must be a YAML array of plays");
+            }
+            _ => panic!("Expected ParseError::InvalidStructure"),
+        }
+    }
 }

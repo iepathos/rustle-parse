@@ -435,3 +435,216 @@ where
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::template::TemplateEngine;
+    use std::collections::HashMap;
+
+    fn create_test_parser() -> (TemplateEngine, HashMap<String, serde_json::Value>) {
+        (TemplateEngine::default(), HashMap::new())
+    }
+
+    #[test]
+    fn test_normalize_yaml_value_boolean_strings() {
+        let (template_engine, extra_vars) = create_test_parser();
+        let parser = PlaybookParser::new(&template_engine, &extra_vars);
+
+        // Test "yes" variations
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("yes".to_string())),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("YES".to_string())),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("Yes".to_string())),
+            serde_json::Value::Bool(true)
+        );
+
+        // Test "true" variations
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("true".to_string())),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("TRUE".to_string())),
+            serde_json::Value::Bool(true)
+        );
+
+        // Test "on" variations
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("on".to_string())),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("ON".to_string())),
+            serde_json::Value::Bool(true)
+        );
+
+        // Test "no" variations
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("no".to_string())),
+            serde_json::Value::Bool(false)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("NO".to_string())),
+            serde_json::Value::Bool(false)
+        );
+
+        // Test "false" variations
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("false".to_string())),
+            serde_json::Value::Bool(false)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("FALSE".to_string())),
+            serde_json::Value::Bool(false)
+        );
+
+        // Test "off" variations
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("off".to_string())),
+            serde_json::Value::Bool(false)
+        );
+        assert_eq!(
+            parser.normalize_yaml_value(serde_json::Value::String("OFF".to_string())),
+            serde_json::Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn test_normalize_yaml_value_non_boolean_strings() {
+        let (template_engine, extra_vars) = create_test_parser();
+        let parser = PlaybookParser::new(&template_engine, &extra_vars);
+
+        // Test regular strings that should not be converted
+        let test_cases = vec![
+            "hello", "world", "maybe", "nope", "truthy", "falsy", "1", "0", "",
+        ];
+
+        for test_case in test_cases {
+            assert_eq!(
+                parser.normalize_yaml_value(serde_json::Value::String(test_case.to_string())),
+                serde_json::Value::String(test_case.to_string()),
+                "String '{}' should not be normalized",
+                test_case
+            );
+        }
+    }
+
+    #[test]
+    fn test_normalize_yaml_value_non_string_types() {
+        let (template_engine, extra_vars) = create_test_parser();
+        let parser = PlaybookParser::new(&template_engine, &extra_vars);
+
+        // Test that non-string values are passed through unchanged
+        let test_cases = vec![
+            serde_json::Value::Bool(true),
+            serde_json::Value::Bool(false),
+            serde_json::Value::Number(serde_json::Number::from(42)),
+            serde_json::Value::Number(serde_json::Number::from_f64(3.14).unwrap()),
+            serde_json::Value::Null,
+            serde_json::json!({"key": "value"}),
+            serde_json::json!(["item1", "item2"]),
+        ];
+
+        for test_case in test_cases {
+            let result = parser.normalize_yaml_value(test_case.clone());
+            assert_eq!(result, test_case, "Non-string value should be unchanged");
+        }
+    }
+
+    #[test]
+    fn test_deserialize_notify_valid_cases() {
+        // Test single string
+        let yaml_single = r#"
+name: Test task
+notify: restart_service
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_single);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert_eq!(task.notify, Some(vec!["restart_service".to_string()]));
+
+        // Test array of strings
+        let yaml_array = r#"
+name: Test task
+notify:
+  - restart_service
+  - reload_config
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_array);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert_eq!(
+            task.notify,
+            Some(vec![
+                "restart_service".to_string(),
+                "reload_config".to_string()
+            ])
+        );
+
+        // Test null/missing notify field
+        let yaml_null = r#"
+name: Test task
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_null);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert_eq!(task.notify, None);
+    }
+
+    #[test]
+    fn test_deserialize_notify_error_cases() {
+        // Test invalid type (number)
+        let yaml_number = r#"
+name: Test task
+notify: 123
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_number);
+        assert!(task.is_err());
+
+        // Test invalid type (boolean)
+        let yaml_bool = r#"
+name: Test task
+notify: true
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_bool);
+        assert!(task.is_err());
+
+        // Test invalid type (object)
+        let yaml_object = r#"
+name: Test task
+notify:
+  handler: restart_service
+  param: value
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_object);
+        assert!(task.is_err());
+
+        // Test array with non-string elements
+        let yaml_mixed_array = r#"
+name: Test task
+notify:
+  - restart_service
+  - 123
+  - reload_config
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_mixed_array);
+        assert!(task.is_err());
+
+        // Test array with nested objects
+        let yaml_nested_array = r#"
+name: Test task
+notify:
+  - restart_service
+  - { handler: reload_config }
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_nested_array);
+        assert!(task.is_err());
+    }
+}

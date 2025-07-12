@@ -1,0 +1,50 @@
+---
+- name: Comprehensive file operations playbook
+  hosts: all
+  gather_facts: yes
+  vars:
+    test_base_dir: /tmp/rustle_file_test
+    
+  tasks:
+    - name: Create base directory structure
+      file:
+        path: /tmp/rustle_file_test
+        state: directory
+        mode: '0755'
+        recurse: true
+      tags:
+        - ansible
+        - files
+        - copy
+        - permissions
+
+    - name: Create subdirectories
+      file:
+        path: "/tmp/rustle_file_test/{{ item }}"
+        state: directory
+        mode: '0750'
+      loop:
+        - config
+        - data
+        - logs
+        - backups
+
+    - name: Copy configuration file
+      copy:
+        src: tests/fixtures/files/test_files/sample.conf
+        dest: /tmp/rustle_file_test/config/app.conf
+        mode: '0644'
+        backup: yes
+
+    - name: Create empty log file
+      file:
+        path: /tmp/rustle_file_test/logs/app.log
+        state: touch
+        mode: '0664'
+
+    - name: Create symbolic link
+      file:
+        src: /tmp/rustle_file_test/config/app.conf
+        dest: /tmp/rustle_file_test/current.conf
+        state: link
+      when: ansible_system != "Windows"

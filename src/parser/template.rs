@@ -2,6 +2,7 @@ use crate::parser::error::ParseError;
 use minijinja::{Environment, Value};
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct TemplateEngine {
     env: Environment<'static>,
 }

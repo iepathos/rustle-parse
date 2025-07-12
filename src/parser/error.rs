@@ -70,4 +70,29 @@ pub enum ParseError {
 
     #[error("Unknown group '{group}' referenced in children")]
     UnknownGroup { group: String },
+
+    // Include/Import related errors
+    #[error("Circular dependency detected in includes: {cycle}")]
+    CircularIncludeDependency { cycle: String },
+
+    #[error("Maximum include depth exceeded: {depth} levels deep in file '{file}'")]
+    MaxIncludeDepthExceeded { depth: usize, file: String },
+
+    #[error("Role '{role}' not found. Searched paths: {searched_paths:?}")]
+    RoleNotFound {
+        role: String,
+        searched_paths: Vec<String>,
+    },
+
+    #[error("Security violation: {message}")]
+    SecurityViolation { message: String },
+
+    #[error("Include file '{file}' not found or not accessible")]
+    IncludeFileNotFound { file: String },
+
+    #[error("Invalid include directive: {message}")]
+    InvalidIncludeDirective { message: String },
+
+    #[error("Include variable resolution failed: {variable} in {file}")]
+    IncludeVariableResolution { variable: String, file: String },
 }

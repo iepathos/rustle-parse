@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod dependency;
 pub mod error;
+pub mod include;
 pub mod inventory;
 pub mod playbook;
 pub mod template;
@@ -8,6 +9,7 @@ pub mod validator;
 pub mod vault;
 
 pub use error::ParseError;
+pub use include::IncludeHandler;
 pub use inventory::InventoryParser;
 pub use playbook::PlaybookParser;
 pub use template::TemplateEngine;
@@ -49,6 +51,14 @@ impl Parser {
     }
 
     pub async fn parse_playbook(&self, path: &Path) -> Result<ParsedPlaybook, ParseError> {
+        let parser = PlaybookParser::new(&self.template_engine, &self.extra_vars);
+        parser.parse_with_includes(path).await
+    }
+
+    pub async fn parse_playbook_without_includes(
+        &self,
+        path: &Path,
+    ) -> Result<ParsedPlaybook, ParseError> {
         let parser = PlaybookParser::new(&self.template_engine, &self.extra_vars);
         parser.parse(path).await
     }

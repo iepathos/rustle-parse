@@ -1,4 +1,5 @@
 use crate::parser::error::ParseError;
+use crate::parser::include::{IncludeContext, IncludeHandler};
 use crate::parser::template::TemplateEngine;
 use crate::types::parsed::*;
 use chrono::Utc;
@@ -24,6 +25,19 @@ impl<'a> PlaybookParser<'a> {
         }
     }
 
+    /// Parse playbook with include/import support
+    pub async fn parse_with_includes(&self, path: &Path) -> Result<ParsedPlaybook, ParseError> {
+        let base_path = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let mut include_handler = IncludeHandler::new(base_path, self.template_engine.clone());
+
+        self.parse_playbook_recursive(path, &mut include_handler)
+            .await
+    }
+
+    /// Parse playbook without include support (original method)
     pub async fn parse(&self, path: &Path) -> Result<ParsedPlaybook, ParseError> {
         let content = fs::read_to_string(path).await.map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -69,6 +83,87 @@ impl<'a> PlaybookParser<'a> {
         }
 
         // No global playbook vars in this simple structure
+
+        let metadata = PlaybookMetadata {
+            file_path: path.to_string_lossy().to_string(),
+            version: None, // TODO: Extract version from playbook if present
+            created_at: Utc::now(),
+            checksum,
+        };
+
+        Ok(ParsedPlaybook {
+            metadata,
+            plays: parsed_plays,
+            variables: playbook_vars,
+            facts_required,
+            vault_ids,
+        })
+    }
+
+    /// Parse playbook recursively with include support
+    async fn parse_playbook_recursive(
+        &self,
+        path: &Path,
+        include_handler: &mut IncludeHandler,
+    ) -> Result<ParsedPlaybook, ParseError> {
+        let content = fs::read_to_string(path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ParseError::FileNotFound {
+                    path: path.to_string_lossy().to_string(),
+                }
+            } else {
+                ParseError::Io(e)
+            }
+        })?;
+
+        // Calculate checksum
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        let checksum = format!("{:x}", hasher.finalize());
+
+        // Parse YAML - Ansible playbooks are arrays of plays
+        let raw_plays: Vec<RawPlay> = serde_yaml::from_str(&content)?;
+
+        // Transform to parsed format
+        let mut parsed_plays = Vec::new();
+        let mut playbook_vars = HashMap::new();
+        let mut facts_required = false;
+        let vault_ids = Vec::new(); // TODO: Extract vault IDs from content
+
+        // Merge extra vars
+        playbook_vars.extend(self.extra_vars.clone());
+
+        // Create include context
+        let include_context = IncludeContext {
+            variables: playbook_vars.clone(),
+            current_file: path.to_path_buf(),
+            include_depth: 0,
+            tags: Vec::new(),
+            when_condition: None,
+        };
+
+        // Process each play
+        for raw_play in raw_plays {
+            let parsed_play = self
+                .parse_play_with_includes(
+                    raw_play,
+                    &playbook_vars,
+                    include_handler,
+                    &include_context,
+                )
+                .await?;
+
+            // Check if any task requires facts
+            if parsed_play
+                .tasks
+                .iter()
+                .any(|t| t.module == "setup" || t.module == "gather_facts")
+            {
+                facts_required = true;
+            }
+
+            parsed_plays.push(parsed_play);
+        }
 
         let metadata = PlaybookMetadata {
             file_path: path.to_string_lossy().to_string(),
@@ -186,6 +281,211 @@ impl<'a> PlaybookParser<'a> {
             strategy: raw_play.strategy.unwrap_or_default(),
             serial: raw_play.serial,
             max_fail_percentage: raw_play.max_fail_percentage,
+        })
+    }
+
+    async fn parse_play_with_includes(
+        &self,
+        raw_play: RawPlay,
+        global_vars: &HashMap<String, serde_json::Value>,
+        include_handler: &mut IncludeHandler,
+        include_context: &IncludeContext,
+    ) -> Result<ParsedPlay, ParseError> {
+        let mut play_vars = global_vars.clone();
+
+        // Merge play vars and render any templates in them
+        if let Some(vars) = raw_play.vars {
+            // First pass: add all raw variables
+            for (key, value) in &vars {
+                play_vars.insert(key.clone(), value.clone());
+            }
+
+            // Second pass: render templates that may reference other variables
+            for (key, value) in vars {
+                let rendered_value = self.template_engine.render_value(&value, &play_vars)?;
+                play_vars.insert(key, rendered_value);
+            }
+        }
+
+        // Parse hosts pattern and render templates
+        let hosts = match raw_play.hosts {
+            Some(RawHostPattern::Single(host)) => {
+                let rendered_host = if host.contains("{{") && host.contains("}}") {
+                    self.template_engine.render_string(&host, &play_vars)?
+                } else {
+                    host
+                };
+
+                if rendered_host == "all" {
+                    HostPattern::All
+                } else {
+                    HostPattern::Single(rendered_host)
+                }
+            }
+            Some(RawHostPattern::Multiple(hosts)) => {
+                let mut rendered_hosts = Vec::new();
+                for host in hosts {
+                    let rendered_host = if host.contains("{{") && host.contains("}}") {
+                        self.template_engine.render_string(&host, &play_vars)?
+                    } else {
+                        host
+                    };
+                    rendered_hosts.push(rendered_host);
+                }
+                HostPattern::Multiple(rendered_hosts)
+            }
+            Some(RawHostPattern::All) => HostPattern::All,
+            None => HostPattern::Single("localhost".to_string()),
+        };
+
+        // Parse tasks with include support
+        let mut tasks = Vec::new();
+        if let Some(raw_tasks) = raw_play.tasks {
+            for (index, raw_task) in raw_tasks.into_iter().enumerate() {
+                // Check if this is an include directive
+                if self.is_include_task(&raw_task) {
+                    let included_tasks = self
+                        .process_task_include(&raw_task, include_handler, include_context)
+                        .await?;
+                    tasks.extend(included_tasks);
+                } else {
+                    let task = self.parse_task(raw_task, &play_vars, index).await?;
+                    tasks.push(task);
+                }
+            }
+        }
+
+        // Parse handlers
+        let mut handlers = Vec::new();
+        if let Some(raw_handlers) = raw_play.handlers {
+            for (index, raw_handler) in raw_handlers.into_iter().enumerate() {
+                let handler = self.parse_task(raw_handler, &play_vars, index).await?;
+                handlers.push(handler);
+            }
+        }
+
+        // Parse roles
+        let mut roles = Vec::new();
+        if let Some(raw_roles) = raw_play.roles {
+            for raw_role in raw_roles {
+                let role = self.parse_role(raw_role)?;
+                roles.push(role);
+            }
+        }
+
+        // Render play name through template engine
+        let rendered_name = if let Some(name) = raw_play.name {
+            if name.contains("{{") && name.contains("}}") {
+                self.template_engine.render_string(&name, &play_vars)?
+            } else {
+                name
+            }
+        } else {
+            "Unnamed play".to_string()
+        };
+
+        Ok(ParsedPlay {
+            name: rendered_name,
+            hosts,
+            vars: play_vars,
+            tasks,
+            handlers,
+            roles,
+            strategy: raw_play.strategy.unwrap_or_default(),
+            serial: raw_play.serial,
+            max_fail_percentage: raw_play.max_fail_percentage,
+        })
+    }
+
+    /// Check if a raw task is an include directive
+    fn is_include_task(&self, raw_task: &RawTask) -> bool {
+        let include_keys = [
+            "include_tasks",
+            "import_tasks",
+            "include_playbook",
+            "import_playbook",
+            "include_vars",
+            "include_role",
+            "import_role",
+        ];
+
+        include_keys
+            .iter()
+            .any(|key| raw_task.module_args.contains_key(*key))
+    }
+
+    /// Process task-level include directives
+    async fn process_task_include(
+        &self,
+        raw_task: &RawTask,
+        include_handler: &mut IncludeHandler,
+        include_context: &IncludeContext,
+    ) -> Result<Vec<ParsedTask>, ParseError> {
+        // Convert raw task to include specification
+        if let Some(include_tasks_value) = raw_task.module_args.get("include_tasks") {
+            let include_spec = self.parse_include_tasks_spec(include_tasks_value, raw_task)?;
+            include_handler
+                .include_tasks(&include_spec, include_context)
+                .await
+        } else if let Some(import_tasks_value) = raw_task.module_args.get("import_tasks") {
+            let import_spec = self.parse_import_tasks_spec(import_tasks_value, raw_task)?;
+            include_handler
+                .import_tasks(&import_spec, include_context)
+                .await
+        } else {
+            // For now, only support include_tasks and import_tasks
+            // Other include types would be implemented here
+            Ok(Vec::new())
+        }
+    }
+
+    /// Parse include_tasks specification from raw task
+    fn parse_include_tasks_spec(
+        &self,
+        include_value: &serde_json::Value,
+        raw_task: &RawTask,
+    ) -> Result<crate::parser::include::IncludeSpec, ParseError> {
+        let file = match include_value {
+            serde_json::Value::String(file_path) => file_path.clone(),
+            _ => {
+                return Err(ParseError::InvalidIncludeDirective {
+                    message: "include_tasks must specify a file path".to_string(),
+                });
+            }
+        };
+
+        Ok(crate::parser::include::IncludeSpec {
+            file,
+            vars: raw_task.vars.clone(),
+            when_condition: raw_task.when.clone(),
+            tags: raw_task.tags.clone(),
+            apply: None, // TODO: Parse apply block from raw task
+            delegate_to: raw_task.delegate_to.clone(),
+            delegate_facts: None, // TODO: Extract from raw task if present
+            run_once: None,       // TODO: Extract from raw task if present
+        })
+    }
+
+    /// Parse import_tasks specification from raw task
+    fn parse_import_tasks_spec(
+        &self,
+        import_value: &serde_json::Value,
+        raw_task: &RawTask,
+    ) -> Result<crate::parser::include::ImportSpec, ParseError> {
+        let file = match import_value {
+            serde_json::Value::String(file_path) => file_path.clone(),
+            _ => {
+                return Err(ParseError::InvalidIncludeDirective {
+                    message: "import_tasks must specify a file path".to_string(),
+                });
+            }
+        };
+
+        Ok(crate::parser::include::ImportSpec {
+            file,
+            vars: raw_task.vars.clone(),
+            when_condition: raw_task.when.clone(),
+            tags: raw_task.tags.clone(),
         })
     }
 

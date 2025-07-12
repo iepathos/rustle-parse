@@ -263,26 +263,27 @@ async fn handle_list_hosts(
     parser: &RustleParser,
     cli: &Cli,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(inventory_path) = &cli.inventory {
-        let inventory = parser.parse_inventory(inventory_path).await?;
-
-        for (hostname, host) in &inventory.hosts {
-            println!("{hostname}:");
-            if let Some(address) = &host.address {
-                println!("  address: {address}");
-            }
-            if let Some(port) = host.port {
-                println!("  port: {port}");
-            }
-            if let Some(user) = &host.user {
-                println!("  user: {user}");
-            }
-            for (key, value) in &host.vars {
-                println!("  {key}: {value}");
-            }
-        }
+    let inventory = if let Some(inventory_path) = &cli.inventory {
+        parser.parse_inventory(inventory_path).await?
     } else {
-        println!("No inventory file specified");
+        // Use implicit localhost inventory when no inventory file is provided
+        parser.create_implicit_inventory()
+    };
+
+    for (hostname, host) in &inventory.hosts {
+        println!("{hostname}:");
+        if let Some(address) = &host.address {
+            println!("  address: {address}");
+        }
+        if let Some(port) = host.port {
+            println!("  port: {port}");
+        }
+        if let Some(user) = &host.user {
+            println!("  user: {user}");
+        }
+        for (key, value) in &host.vars {
+            println!("  {key}: {value}");
+        }
     }
 
     Ok(())

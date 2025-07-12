@@ -1,0 +1,23 @@
+---
+- name: System facts gathering playbook
+  hosts: all
+  gather_facts: yes
+  
+  tasks:
+    - name: Gather system facts
+      setup:
+        gather_subset: all
+        gather_timeout: 10
+      tags:
+        - facts
+        - setup
+        - system
+    
+    - name: Display gathered facts
+      debug:
+        msg: "System: {{ ansible_system }}, OS Family: {{ ansible_os_family }}, Architecture: {{ ansible_architecture }}"
+      
+    - name: Task for Linux systems only
+      debug:
+        msg: "This is a Linux system with {{ ansible_processor_cores }} CPU cores"
+      when: ansible_system == "Linux"

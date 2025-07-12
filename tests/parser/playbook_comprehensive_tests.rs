@@ -683,7 +683,7 @@ async fn test_parse_playbook_host_pattern_fallback() {
     let playbook = parser.parse(temp_file.path()).await.unwrap();
 
     let play = &playbook.plays[0];
-    assert_eq!(play.hosts, HostPattern::All); // Should default to all
+    assert_eq!(play.hosts, HostPattern::Single("localhost".to_string())); // Should default to localhost
 }
 
 #[tokio::test]
@@ -744,4 +744,76 @@ async fn test_parse_playbook_checksum_consistency() {
 
     // Checksums should be identical
     assert_eq!(playbook1.metadata.checksum, playbook2.metadata.checksum);
+}
+
+#[tokio::test]
+async fn test_parse_system_facts_playbook() {
+    let (template_engine, extra_vars) = setup_parser();
+    let parser = PlaybookParser::new(&template_engine, &extra_vars);
+
+    let playbook_path = Path::new("tests/fixtures/playbooks/system-facts-playbook.yml");
+    let playbook = parser.parse(playbook_path).await.unwrap();
+
+    // Verify metadata
+    assert_eq!(
+        playbook.metadata.file_path,
+        "tests/fixtures/playbooks/system-facts-playbook.yml"
+    );
+    assert_eq!(
+        playbook.metadata.checksum,
+        "6dc9ca8307b63431f583dc81903f32d46def91875653464c5a8297797eb385ad"
+    );
+    assert_eq!(playbook.facts_required, true);
+
+    // Verify play structure
+    assert_eq!(playbook.plays.len(), 1);
+    let play = &playbook.plays[0];
+    assert_eq!(play.name, "System facts gathering playbook");
+    assert_eq!(play.hosts, HostPattern::All);
+
+    // Verify tasks
+    assert_eq!(play.tasks.len(), 3);
+
+    // Task 0: Gather system facts
+    let gather_task = &play.tasks[0];
+    assert_eq!(gather_task.name, "Gather system facts");
+    assert_eq!(gather_task.module, "setup");
+    assert_eq!(
+        gather_task.args["gather_subset"],
+        serde_json::Value::String("all".to_string())
+    );
+    assert_eq!(
+        gather_task.args["gather_timeout"],
+        serde_json::Value::Number(serde_json::Number::from(10))
+    );
+    assert_eq!(
+        gather_task.tags,
+        vec![
+            "facts".to_string(),
+            "setup".to_string(),
+            "system".to_string()
+        ]
+    );
+
+    // Task 1: Display gathered facts (template variables are resolved to empty strings)
+    let display_task = &play.tasks[1];
+    assert_eq!(display_task.name, "Display gathered facts");
+    assert_eq!(display_task.module, "debug");
+    assert_eq!(
+        display_task.args["msg"],
+        serde_json::Value::String("System: , OS Family: , Architecture: ".to_string())
+    );
+
+    // Task 2: Linux-only task (template variables are resolved to empty strings)
+    let linux_task = &play.tasks[2];
+    assert_eq!(linux_task.name, "Task for Linux systems only");
+    assert_eq!(linux_task.module, "debug");
+    assert_eq!(
+        linux_task.args["msg"],
+        serde_json::Value::String("This is a Linux system with  CPU cores".to_string())
+    );
+    assert_eq!(
+        linux_task.when,
+        Some("ansible_system == \"Linux\"".to_string())
+    );
 }

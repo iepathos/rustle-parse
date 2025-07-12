@@ -33,12 +33,55 @@ pub struct ParsedPlay {
     pub max_fail_percentage: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HostPattern {
     Single(String),
     Multiple(Vec<String>),
     All,
+}
+
+impl Serialize for HostPattern {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            HostPattern::Single(s) => s.serialize(serializer),
+            HostPattern::Multiple(v) => v.serialize(serializer),
+            HostPattern::All => "all".serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for HostPattern {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        match value {
+            serde_json::Value::String(s) => {
+                if s == "all" {
+                    Ok(HostPattern::All)
+                } else {
+                    Ok(HostPattern::Single(s))
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                let strings: Result<Vec<String>, _> = arr
+                    .into_iter()
+                    .map(|v| match v {
+                        serde_json::Value::String(s) => Ok(s),
+                        _ => Err(D::Error::custom("Array elements must be strings")),
+                    })
+                    .collect();
+                Ok(HostPattern::Multiple(strings?))
+            }
+            _ => Err(D::Error::custom("Expected string or array of strings")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

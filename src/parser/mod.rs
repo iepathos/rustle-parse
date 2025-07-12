@@ -65,6 +65,42 @@ impl Parser {
     pub fn resolve_dependencies(&self, playbook: &ParsedPlaybook) -> Vec<String> {
         dependency::resolve_task_dependencies(&playbook.plays)
     }
+
+    /// Creates an implicit localhost inventory, similar to Ansible's default behavior
+    /// when no inventory file is provided.
+    pub fn create_implicit_inventory(&self) -> ParsedInventory {
+        use crate::types::parsed::{ParsedGroup, ParsedHost};
+        use std::collections::HashMap;
+
+        let mut hosts = HashMap::new();
+        let mut groups = HashMap::new();
+
+        // Create localhost host
+        let localhost = ParsedHost {
+            name: "localhost".to_string(),
+            address: Some("127.0.0.1".to_string()),
+            port: None,
+            user: None,
+            vars: HashMap::new(),
+            groups: vec!["all".to_string()],
+        };
+        hosts.insert("localhost".to_string(), localhost);
+
+        // Create 'all' group containing localhost
+        let all_group = ParsedGroup {
+            name: "all".to_string(),
+            hosts: vec!["localhost".to_string()],
+            children: vec![],
+            vars: HashMap::new(),
+        };
+        groups.insert("all".to_string(), all_group);
+
+        ParsedInventory {
+            hosts,
+            groups,
+            variables: HashMap::new(),
+        }
+    }
 }
 
 impl Default for Parser {

@@ -294,7 +294,8 @@ fn test_cli_list_hosts_no_inventory() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("No inventory file specified"));
+        .stdout(predicate::str::contains("localhost:"))
+        .stdout(predicate::str::contains("address: 127.0.0.1"));
 }
 
 #[test]

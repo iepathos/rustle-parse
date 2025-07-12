@@ -135,7 +135,7 @@ impl<'a> PlaybookParser<'a> {
                 HostPattern::Multiple(rendered_hosts)
             }
             Some(RawHostPattern::All) => HostPattern::All,
-            None => HostPattern::All,
+            None => HostPattern::Single("localhost".to_string()),
         };
 
         // Parse tasks

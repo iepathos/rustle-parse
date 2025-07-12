@@ -112,7 +112,7 @@ fn test_regex_replace_filter_with_regex_pattern() {
     );
 
     let result = engine
-        .render_string(r#"{{ text | regex_replace('\d+', 'X') }}"#, &vars)
+        .render_string(r#"{{ text | regex_replace('\\d+', 'X') }}"#, &vars)
         .unwrap();
     assert_eq!(result, "testXtestX");
 }

@@ -13,10 +13,24 @@ pub async fn validate_playbook_syntax(path: &Path) -> Result<(), ParseError> {
         }
     })?;
 
-    // Basic YAML syntax validation
-    let _: serde_yaml::Value = serde_yaml::from_str(&content)?;
+    // Check for empty or whitespace-only content
+    if content.trim().is_empty() {
+        return Err(ParseError::InvalidStructure {
+            message: "Playbook file cannot be empty".to_string(),
+        });
+    }
 
-    // TODO: Add Ansible-specific validation rules
+    // Basic YAML syntax validation
+    let yaml_value: serde_yaml::Value = serde_yaml::from_str(&content)?;
+
+    // Check if it's a valid playbook structure (should be an array)
+    if !yaml_value.is_sequence() && !yaml_value.is_null() {
+        return Err(ParseError::InvalidStructure {
+            message: "Playbook must be a YAML array of plays".to_string(),
+        });
+    }
+
+    // TODO: Add more Ansible-specific validation rules
 
     Ok(())
 }
@@ -57,16 +71,16 @@ mod tests {
     async fn test_validate_playbook_syntax_empty_file() {
         let temp_file = create_temp_file("").unwrap();
         let result = validate_playbook_syntax(temp_file.path()).await;
-        // Empty file should still be valid YAML (null value)
-        assert!(result.is_ok());
+        // Empty file should be invalid for playbooks
+        assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_validate_playbook_syntax_whitespace_only() {
         let temp_file = create_temp_file("   \n     \n   ").unwrap();
         let result = validate_playbook_syntax(temp_file.path()).await;
-        // Whitespace-only file should be valid YAML (null value)
-        assert!(result.is_ok());
+        // Whitespace-only file should be invalid for playbooks
+        assert!(result.is_err());
     }
 
     #[tokio::test]

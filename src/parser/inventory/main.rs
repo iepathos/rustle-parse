@@ -134,61 +134,49 @@ impl<'a> InventoryParser<'a> {
     }
 
     async fn parse_yaml_inventory(&self, content: &str) -> Result<ParsedInventory, ParseError> {
-        let raw_inventory: RawYamlInventory = serde_yaml::from_str(content)?;
+        let yaml_value: serde_yaml::Value = serde_yaml::from_str(content)?;
 
         let mut hosts = HashMap::new();
         let mut groups = HashMap::new();
         let mut variables = self.extra_vars.clone();
 
-        // Add global variables if present
-        if let Some(all_group) = raw_inventory.all {
-            if let Some(vars) = all_group.vars {
-                variables.extend(vars);
-            }
-        }
+        // Handle both formats:
+        // 1. Standard Ansible inventory with groups at top level
+        // 2. Inventory with 'all' group containing everything
 
-        // Process each group
-        for (group_name, group_data) in raw_inventory.groups.unwrap_or_default() {
-            let mut parsed_hosts = Vec::new();
-            let mut children = Vec::new();
-            let group_vars = group_data.vars.unwrap_or_default();
-
-            // Process hosts in this group
-            if let Some(hosts_data) = group_data.hosts {
-                for (hostname, host_data) in hosts_data {
-                    let host_vars = host_data.unwrap_or_default();
-                    let (address, port, user) = self.extract_connection_info(&host_vars);
-
-                    let host = ParsedHost {
-                        name: hostname.clone(),
-                        address,
-                        port,
-                        user,
-                        vars: host_vars,
-                        groups: vec![group_name.clone()],
-                    };
-
-                    hosts.insert(hostname.clone(), host);
-                    parsed_hosts.push(hostname);
+        if let serde_yaml::Value::Mapping(root) = yaml_value {
+            for (key, value) in root {
+                if let Some(group_name) = key.as_str() {
+                    if group_name == "all" {
+                        // Handle 'all' group specially for global variables
+                        if let serde_yaml::Value::Mapping(ref all_data) = value {
+                            if let Some(vars_value) =
+                                all_data.get(&serde_yaml::Value::String("vars".to_string()))
+                            {
+                                if let Ok(vars) =
+                                    serde_yaml::from_value::<HashMap<String, serde_json::Value>>(
+                                        vars_value.clone(),
+                                    )
+                                {
+                                    variables.extend(vars);
+                                }
+                            }
+                            // Also process 'all' as a regular group if it has hosts or children
+                            if all_data
+                                .contains_key(&serde_yaml::Value::String("hosts".to_string()))
+                                || all_data.contains_key(&serde_yaml::Value::String(
+                                    "children".to_string(),
+                                ))
+                            {
+                                self.process_group(group_name, &value, &mut hosts, &mut groups)?;
+                            }
+                        }
+                    } else {
+                        // Process regular groups
+                        self.process_group(group_name, &value, &mut hosts, &mut groups)?;
+                    }
                 }
             }
-
-            // Process children groups
-            if let Some(children_data) = group_data.children {
-                for child_name in children_data.keys() {
-                    children.push(child_name.clone());
-                }
-            }
-
-            groups.insert(
-                group_name.clone(),
-                ParsedGroup {
-                    name: group_name,
-                    hosts: parsed_hosts,
-                    children,
-                    vars: group_vars,
-                },
-            );
         }
 
         Ok(ParsedInventory {
@@ -196,6 +184,90 @@ impl<'a> InventoryParser<'a> {
             groups,
             variables,
         })
+    }
+
+    fn process_group(
+        &self,
+        group_name: &str,
+        group_value: &serde_yaml::Value,
+        hosts: &mut HashMap<String, ParsedHost>,
+        groups: &mut HashMap<String, ParsedGroup>,
+    ) -> Result<(), ParseError> {
+        if let serde_yaml::Value::Mapping(group_data) = group_value {
+            let mut parsed_hosts = Vec::new();
+            let mut children = Vec::new();
+            let mut group_vars = HashMap::new();
+
+            // Process hosts in this group
+            if let Some(hosts_value) =
+                group_data.get(&serde_yaml::Value::String("hosts".to_string()))
+            {
+                if let serde_yaml::Value::Mapping(hosts_data) = hosts_value {
+                    for (hostname_val, host_data_val) in hosts_data {
+                        if let Some(hostname) = hostname_val.as_str() {
+                            let host_vars = match host_data_val {
+                                serde_yaml::Value::Mapping(_) => {
+                                    serde_yaml::from_value::<HashMap<String, serde_json::Value>>(
+                                        host_data_val.clone(),
+                                    )
+                                    .unwrap_or_default()
+                                }
+                                serde_yaml::Value::Null => HashMap::new(),
+                                _ => HashMap::new(),
+                            };
+
+                            let (address, port, user) = self.extract_connection_info(&host_vars);
+
+                            let host = ParsedHost {
+                                name: hostname.to_string(),
+                                address,
+                                port,
+                                user,
+                                vars: host_vars,
+                                groups: vec![group_name.to_string()],
+                            };
+
+                            hosts.insert(hostname.to_string(), host);
+                            parsed_hosts.push(hostname.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Process children groups
+            if let Some(children_value) =
+                group_data.get(&serde_yaml::Value::String("children".to_string()))
+            {
+                if let serde_yaml::Value::Mapping(children_data) = children_value {
+                    for (child_name_val, _) in children_data {
+                        if let Some(child_name) = child_name_val.as_str() {
+                            children.push(child_name.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Process group variables
+            if let Some(vars_value) = group_data.get(&serde_yaml::Value::String("vars".to_string()))
+            {
+                group_vars = serde_yaml::from_value::<HashMap<String, serde_json::Value>>(
+                    vars_value.clone(),
+                )
+                .unwrap_or_default();
+            }
+
+            groups.insert(
+                group_name.to_string(),
+                ParsedGroup {
+                    name: group_name.to_string(),
+                    hosts: parsed_hosts,
+                    children,
+                    vars: group_vars,
+                },
+            );
+        }
+
+        Ok(())
     }
 
     async fn parse_json_inventory(&self, content: &str) -> Result<ParsedInventory, ParseError> {

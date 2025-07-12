@@ -2,7 +2,7 @@ use crate::parser::error::ParseError;
 use crate::parser::template::TemplateEngine;
 use crate::types::parsed::*;
 use chrono::Utc;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
@@ -93,15 +93,47 @@ impl<'a> PlaybookParser<'a> {
     ) -> Result<ParsedPlay, ParseError> {
         let mut play_vars = global_vars.clone();
 
-        // Merge play vars
+        // Merge play vars and render any templates in them
         if let Some(vars) = raw_play.vars {
-            play_vars.extend(vars);
+            // First pass: add all raw variables
+            for (key, value) in &vars {
+                play_vars.insert(key.clone(), value.clone());
+            }
+
+            // Second pass: render templates that may reference other variables
+            for (key, value) in vars {
+                let rendered_value = self.template_engine.render_value(&value, &play_vars)?;
+                play_vars.insert(key, rendered_value);
+            }
         }
 
-        // Parse hosts pattern
+        // Parse hosts pattern and render templates
         let hosts = match raw_play.hosts {
-            Some(RawHostPattern::Single(host)) => HostPattern::Single(host),
-            Some(RawHostPattern::Multiple(hosts)) => HostPattern::Multiple(hosts),
+            Some(RawHostPattern::Single(host)) => {
+                let rendered_host = if host.contains("{{") && host.contains("}}") {
+                    self.template_engine.render_string(&host, &play_vars)?
+                } else {
+                    host
+                };
+
+                if rendered_host == "all" {
+                    HostPattern::All
+                } else {
+                    HostPattern::Single(rendered_host)
+                }
+            }
+            Some(RawHostPattern::Multiple(hosts)) => {
+                let mut rendered_hosts = Vec::new();
+                for host in hosts {
+                    let rendered_host = if host.contains("{{") && host.contains("}}") {
+                        self.template_engine.render_string(&host, &play_vars)?
+                    } else {
+                        host
+                    };
+                    rendered_hosts.push(rendered_host);
+                }
+                HostPattern::Multiple(rendered_hosts)
+            }
             Some(RawHostPattern::All) => HostPattern::All,
             None => HostPattern::All,
         };
@@ -133,8 +165,19 @@ impl<'a> PlaybookParser<'a> {
             }
         }
 
+        // Render play name through template engine
+        let rendered_name = if let Some(name) = raw_play.name {
+            if name.contains("{{") && name.contains("}}") {
+                self.template_engine.render_string(&name, &play_vars)?
+            } else {
+                name
+            }
+        } else {
+            "Unnamed play".to_string()
+        };
+
         Ok(ParsedPlay {
-            name: raw_play.name.unwrap_or_else(|| "Unnamed play".to_string()),
+            name: rendered_name,
             hosts,
             vars: play_vars,
             tasks,
@@ -282,11 +325,26 @@ impl<'a> PlaybookParser<'a> {
         let mut rendered_args = HashMap::new();
 
         for (key, value) in args {
-            let rendered_value = self.template_engine.render_value(&value, vars)?;
+            let normalized_value = self.normalize_yaml_value(value);
+            let rendered_value = self.template_engine.render_value(&normalized_value, vars)?;
             rendered_args.insert(key, rendered_value);
         }
 
         Ok(rendered_args)
+    }
+
+    fn normalize_yaml_value(&self, value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::String(s) => {
+                // Convert YAML boolean strings to actual booleans
+                match s.to_lowercase().as_str() {
+                    "yes" | "true" | "on" => serde_json::Value::Bool(true),
+                    "no" | "false" | "off" => serde_json::Value::Bool(false),
+                    _ => serde_json::Value::String(s),
+                }
+            }
+            _ => value,
+        }
     }
 }
 
@@ -321,6 +379,7 @@ struct RawTask {
     #[serde(rename = "loop")]
     loop_items: Option<serde_json::Value>,
     tags: Option<Vec<String>>,
+    #[serde(deserialize_with = "deserialize_notify", default)]
     notify: Option<Vec<String>>,
     changed_when: Option<String>,
     failed_when: Option<String>,
@@ -344,4 +403,35 @@ struct RawRoleObject {
     version: Option<String>,
     vars: Option<HashMap<String, serde_json::Value>>,
     tags: Option<Vec<String>>,
+}
+
+// Custom deserializer for notify field that accepts both string and array
+fn deserialize_notify<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::{Error, Unexpected};
+
+    let value: Option<serde_json::Value> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(serde_json::Value::String(s)) => Ok(Some(vec![s])),
+        Some(serde_json::Value::Array(arr)) => {
+            let strings: Result<Vec<String>, _> = arr
+                .into_iter()
+                .map(|v| match v {
+                    serde_json::Value::String(s) => Ok(s),
+                    _ => Err(Error::invalid_type(
+                        Unexpected::Other("non-string in array"),
+                        &"string",
+                    )),
+                })
+                .collect();
+            strings.map(Some)
+        }
+        Some(_) => Err(Error::invalid_type(
+            Unexpected::Other("non-string/array"),
+            &"string or array of strings",
+        )),
+    }
 }

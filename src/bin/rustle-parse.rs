@@ -138,12 +138,87 @@ fn parse_extra_vars(
     let mut vars = HashMap::new();
 
     if let Some(vars_str) = extra_vars_str {
-        for pair in vars_str.split(',') {
-            if let Some((key, value)) = pair.split_once('=') {
-                // Try to parse as JSON first, fall back to string
+        // Simple parser that handles JSON values with commas
+        let mut current_key = String::new();
+        let mut current_value = String::new();
+        let mut in_key = true;
+        let mut depth = 0;
+        let mut in_quotes = false;
+        let mut escape_next = false;
+
+        for ch in vars_str.chars() {
+            if escape_next {
+                if in_key {
+                    current_key.push(ch);
+                } else {
+                    current_value.push(ch);
+                }
+                escape_next = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                escape_next = true;
+                if in_key {
+                    current_key.push(ch);
+                } else {
+                    current_value.push(ch);
+                }
+                continue;
+            }
+
+            if ch == '"' && !escape_next {
+                in_quotes = !in_quotes;
+            }
+
+            if !in_quotes {
+                match ch {
+                    '[' | '{' => depth += 1,
+                    ']' | '}' => depth -= 1,
+                    '=' if in_key => {
+                        in_key = false;
+                        continue;
+                    }
+                    ',' if depth == 0 => {
+                        // End of this key-value pair
+                        if !in_key {
+                            // We have a proper key=value pair
+                            let key = current_key.trim().to_string();
+                            let value = current_value.trim();
+                            if !key.is_empty() {
+                                let parsed_value =
+                                    serde_json::from_str(value).unwrap_or_else(|_| {
+                                        serde_json::Value::String(value.to_string())
+                                    });
+                                vars.insert(key, parsed_value);
+                            }
+                        }
+                        // Reset for next pair (ignore malformed entries)
+                        current_key.clear();
+                        current_value.clear();
+                        in_key = true;
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+
+            if in_key {
+                current_key.push(ch);
+            } else {
+                current_value.push(ch);
+            }
+        }
+
+        // Handle the last key-value pair
+        if !in_key {
+            // We have a proper key=value pair
+            let key = current_key.trim().to_string();
+            let value = current_value.trim();
+            if !key.is_empty() {
                 let parsed_value = serde_json::from_str(value)
                     .unwrap_or_else(|_| serde_json::Value::String(value.to_string()));
-                vars.insert(key.trim().to_string(), parsed_value);
+                vars.insert(key, parsed_value);
             }
         }
     }

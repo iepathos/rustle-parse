@@ -1165,7 +1165,7 @@ web1 ansible_host=192.168.1.10
 
         // Test numbers
         assert_eq!(parser.parse_ini_value("42"), json!(42));
-        assert_eq!(parser.parse_ini_value("3.14"), json!(3.14));
+        assert_eq!(parser.parse_ini_value("2.5"), json!(2.5));
 
         // Test strings with quotes
         assert_eq!(parser.parse_ini_value("\"hello\""), json!("hello"));

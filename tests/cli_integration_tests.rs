@@ -603,7 +603,7 @@ fn test_cli_syntax_check_exit_code_on_failure() {
     // Should exit with non-zero code for invalid syntax
     cmd.assert()
         .failure()
-        .stderr(predicate::str::contains("Yaml").or(predicate::str::contains("Error")));
+        .stderr(predicate::str::contains("YAML").or(predicate::str::contains("ERROR")));
 }
 
 #[test]

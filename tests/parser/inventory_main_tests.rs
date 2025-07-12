@@ -194,8 +194,7 @@ async fn test_auto_detect_json_format() {
 
     let temp_file = create_temp_file(json_content);
     let path = temp_file.path();
-    let mut path_without_ext = path.to_path_buf();
-    path_without_ext.set_extension("");
+    let path_without_ext = path.with_file_name("test_inventory_no_ext");
 
     std::fs::copy(path, &path_without_ext).unwrap();
 
@@ -220,8 +219,7 @@ webservers:
 
     let temp_file = create_temp_file(yaml_content);
     let path = temp_file.path();
-    let mut path_without_ext = path.to_path_buf();
-    path_without_ext.set_extension("");
+    let path_without_ext = path.with_file_name("test_yaml_inventory_no_ext");
 
     std::fs::copy(path, &path_without_ext).unwrap();
 
@@ -244,8 +242,7 @@ web1.example.com
 
     let temp_file = create_temp_file(ini_content);
     let path = temp_file.path();
-    let mut path_without_ext = path.to_path_buf();
-    path_without_ext.set_extension("");
+    let path_without_ext = path.with_file_name("test_ini_inventory_no_ext");
 
     std::fs::copy(path, &path_without_ext).unwrap();
 
@@ -512,7 +509,7 @@ async fn test_validate_inventory() {
             port: Some(22),
             user: Some("admin".to_string()),
             vars: HashMap::new(),
-            groups: vec!["webservers".to_string()],
+            groups: vec!["webservers".to_string(), "all".to_string()],
         },
     );
 

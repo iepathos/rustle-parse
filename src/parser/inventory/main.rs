@@ -84,6 +84,9 @@ impl<'a> InventoryParser<'a> {
 
         let mut inventory = ini_parser.parse_ini_inventory(content).await?;
 
+        // Ensure 'all' group exists and contains all hosts
+        Self::ensure_all_group(&mut inventory);
+
         // Resolve variable inheritance
         VariableInheritanceResolver::resolve_group_inheritance(&mut inventory)?;
 
@@ -177,11 +180,22 @@ impl<'a> InventoryParser<'a> {
             }
         }
 
-        Ok(ParsedInventory {
+        let mut inventory = ParsedInventory {
             hosts,
             groups,
             variables,
-        })
+        };
+
+        // Ensure 'all' group exists and contains all hosts
+        Self::ensure_all_group(&mut inventory);
+
+        // Resolve variable inheritance
+        VariableInheritanceResolver::resolve_group_inheritance(&mut inventory)?;
+
+        // Validate the final inventory
+        InventoryValidator::validate_inventory(&inventory)?;
+
+        Ok(inventory)
     }
 
     fn process_group(
@@ -343,10 +357,21 @@ impl<'a> InventoryParser<'a> {
                             },
                         );
 
-                        // Update host group memberships
+                        // Update host group memberships and create hosts if they don't exist
                         for hostname in group_hosts {
                             if let Some(host) = hosts.get_mut(&hostname) {
                                 host.groups.push(key.clone());
+                            } else {
+                                // Create host if it doesn't exist
+                                let host = ParsedHost {
+                                    name: hostname.clone(),
+                                    address: None,
+                                    port: None,
+                                    user: None,
+                                    vars: HashMap::new(),
+                                    groups: vec![key.clone()],
+                                };
+                                hosts.insert(hostname.clone(), host);
                             }
                         }
                     }
@@ -354,11 +379,22 @@ impl<'a> InventoryParser<'a> {
             }
         }
 
-        Ok(ParsedInventory {
+        let mut inventory = ParsedInventory {
             hosts,
             groups,
             variables,
-        })
+        };
+
+        // Ensure 'all' group exists and contains all hosts
+        Self::ensure_all_group(&mut inventory);
+
+        // Resolve variable inheritance
+        VariableInheritanceResolver::resolve_group_inheritance(&mut inventory)?;
+
+        // Validate the final inventory
+        InventoryValidator::validate_inventory(&inventory)?;
+
+        Ok(inventory)
     }
 
     #[allow(dead_code)]
@@ -400,6 +436,40 @@ impl<'a> InventoryParser<'a> {
         }
 
         vars
+    }
+
+    /// Ensure the 'all' group exists and contains all hosts
+    fn ensure_all_group(inventory: &mut ParsedInventory) {
+        let all_host_names: Vec<String> = inventory.hosts.keys().cloned().collect();
+
+        // Add all hosts to the 'all' group membership
+        for host in inventory.hosts.values_mut() {
+            if !host.groups.contains(&"all".to_string()) {
+                host.groups.push("all".to_string());
+            }
+        }
+
+        // Create or update the 'all' group
+        if let Some(all_group) = inventory.groups.get_mut("all") {
+            // Update existing 'all' group to ensure it contains all hosts
+            for host_name in &all_host_names {
+                if !all_group.hosts.contains(host_name) {
+                    all_group.hosts.push(host_name.clone());
+                }
+            }
+        } else {
+            // Create the 'all' group
+            use crate::types::parsed::ParsedGroup;
+            inventory.groups.insert(
+                "all".to_string(),
+                ParsedGroup {
+                    name: "all".to_string(),
+                    hosts: all_host_names,
+                    children: Vec::new(),
+                    vars: HashMap::new(),
+                },
+            );
+        }
     }
 
     fn extract_connection_info(

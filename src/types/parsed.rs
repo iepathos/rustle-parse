@@ -33,7 +33,7 @@ pub struct ParsedPlay {
     pub max_fail_percentage: Option<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum HostPattern {
     Single(String),
@@ -68,7 +68,7 @@ pub struct ParsedRole {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionStrategy {
     #[default]

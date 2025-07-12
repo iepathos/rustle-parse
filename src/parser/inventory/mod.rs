@@ -4,7 +4,7 @@ pub mod validation;
 pub mod variables;
 
 // Re-export the main inventory parser
-mod main;
+pub mod main;
 pub use main::*;
 
 pub use ini::*;

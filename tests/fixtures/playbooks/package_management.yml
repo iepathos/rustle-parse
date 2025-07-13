@@ -1,0 +1,29 @@
+---
+- name: Package management test
+  hosts: test_hosts
+  become: yes
+  tasks:
+    - name: Update package cache (Debian/Ubuntu)
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install curl package
+      package:
+        name: curl
+        state: present
+
+    - name: Install wget package
+      package:
+        name: wget
+        state: present
+
+    - name: Verify curl is installed
+      command: which curl
+      register: curl_check
+      changed_when: false
+
+    - name: Verify wget is installed
+      command: which wget
+      register: wget_check
+      changed_when: false

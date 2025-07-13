@@ -1,0 +1,32 @@
+---
+- name: Service management test
+  hosts: test_hosts
+  become: yes
+  tasks:
+    - name: Install nginx for testing
+      package:
+        name: nginx
+        state: present
+
+    - name: Start nginx service
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Check nginx status
+      command: systemctl is-active nginx
+      register: nginx_status
+      changed_when: false
+
+    - name: Restart nginx service
+      service:
+        name: nginx
+        state: restarted
+
+    - name: Verify nginx is listening on port 80
+      wait_for:
+        port: 80
+        host: localhost
+        delay: 2
+        timeout: 30

@@ -570,6 +570,7 @@ impl IncludeHandler {
             "systemd",
             "assert",
             "postgresql_db",
+            "wait_for",
         ];
 
         for &key in &module_keys {

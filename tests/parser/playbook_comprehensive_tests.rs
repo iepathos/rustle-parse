@@ -757,13 +757,13 @@ async fn test_parse_system_facts_playbook() {
     let (template_engine, extra_vars) = setup_parser();
     let parser = PlaybookParser::new(&template_engine, &extra_vars);
 
-    let playbook_path = Path::new("tests/fixtures/playbooks/system-facts-playbook.yml");
+    let playbook_path = Path::new("tests/fixtures/playbooks/system_facts_playbook.yml");
     let playbook = parser.parse(playbook_path).await.unwrap();
 
     // Verify metadata
     assert_eq!(
         playbook.metadata.file_path,
-        "tests/fixtures/playbooks/system-facts-playbook.yml"
+        "tests/fixtures/playbooks/system_facts_playbook.yml"
     );
     assert_eq!(
         playbook.metadata.checksum,

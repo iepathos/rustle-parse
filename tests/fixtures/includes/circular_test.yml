@@ -1,0 +1,7 @@
+---
+# Test circular dependency detection
+- name: Circular Include Test
+  hosts: localhost
+  tasks:
+    - name: This will cause a circular dependency
+      include_tasks: circular_include.yml

@@ -1,0 +1,29 @@
+---
+# Test include_vars functionality
+- name: Include Vars Test
+  hosts: localhost
+  tasks:
+    - name: Include common variables
+      include_vars: vars/common.yml
+
+    - name: Include environment-specific variables
+      include_vars: vars/environment.yml
+      tags:
+        - environment
+
+    - name: Include variables conditionally
+      include_vars: "vars/{{ environment | default('development') }}.yml"
+      when: include_env_vars | default(true)
+
+    - name: Display loaded variables
+      debug:
+        msg: |
+          App: {{ app_name }} v{{ app_version }}
+          Environment: {{ environment }}
+          Debug: {{ debug_enabled | default(false) }}
+          Database: {{ app_config.database.host }}:{{ app_config.database.port }}
+
+    - name: Use included variables in tasks
+      debug:
+        msg: "API Gateway: {{ external_services.api_gateway }}"
+      when: external_services is defined

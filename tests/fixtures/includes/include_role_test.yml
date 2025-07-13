@@ -1,0 +1,31 @@
+---
+# Test include_role and import_role functionality
+- name: Role Include Test
+  hosts: localhost
+  vars:
+    role_environment: "test"
+  tasks:
+    - name: Include role dynamically
+      include_role:
+        name: test_role
+      vars:
+        role_var: "dynamic_include_value"
+        role_timeout: 45
+
+    - name: Import role statically
+      import_role:
+        name: test_role
+      vars:
+        role_var: "static_import_value"
+      tags:
+        - static_role
+
+    - name: Include specific role tasks
+      include_role:
+        name: test_role
+        tasks_from: main
+      when: role_environment == "test"
+
+    - name: Use role variables
+      debug:
+        msg: "Role name: {{ role_name | default('undefined') }}, Config: {{ role_config | default({}) }}"

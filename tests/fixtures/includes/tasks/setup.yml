@@ -1,0 +1,30 @@
+---
+# Setup tasks to be included dynamically
+- name: Setup directories
+  file:
+    path: "/tmp/app/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - logs
+    - config
+    - data
+  when: setup_mode == "full"
+
+- name: Configure application
+  template:
+    src: "app.conf.j2"
+    dest: "/tmp/app/config/app.conf"
+  vars:
+    app_debug: "{{ setup_mode == 'debug' }}"
+    app_env: "{{ ansible_environment | default('production') }}"
+
+- name: Create setup marker
+  copy:
+    content: |
+      Setup completed at {{ ansible_date_time.iso8601 }}
+      Mode: {{ setup_mode }}
+      Variables: {{ main_var | default('not_set') }}
+    dest: "/tmp/app/setup_complete"
+  notify:
+    - restart app service

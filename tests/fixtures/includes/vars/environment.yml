@@ -1,0 +1,18 @@
+---
+# Environment-specific variables
+environment: "test"
+debug_enabled: true
+security_settings:
+  ssl_required: false
+  cors_enabled: true
+  rate_limiting: false
+
+external_services:
+  api_gateway: "https://test-api.example.com"
+  monitoring: "https://test-monitoring.example.com"
+  logging: "https://test-logs.example.com"
+
+resource_limits:
+  cpu: "0.5"
+  memory: "512Mi"
+  storage: "1Gi"

@@ -1,0 +1,13 @@
+---
+# Nested task that includes itself recursively (with depth limit)
+- name: "Process at level {{ current_level | default(1) }}"
+  debug:
+    msg: "Processing at nesting level {{ current_level | default(1) }}"
+
+- name: Conditional deeper nesting
+  include_tasks: nested_task.yml
+  vars:
+    current_level: "{{ (current_level | default(1) | int) + 1 }}"
+  when: 
+    - current_level | default(1) | int < max_nesting | default(3) | int
+    - enable_deep_nesting | default(false)

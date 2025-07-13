@@ -1,0 +1,9 @@
+---
+# Role variables
+role_name: "test_role"
+role_var: "role_specific_value"
+role_config:
+  enabled: true
+  settings:
+    timeout: 60
+    retries: 3

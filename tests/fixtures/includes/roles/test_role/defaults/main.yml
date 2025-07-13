@@ -1,0 +1,5 @@
+---
+# Role default variables
+role_enabled: true
+role_debug: false
+role_timeout: 30

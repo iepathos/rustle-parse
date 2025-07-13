@@ -1,0 +1,20 @@
+---
+# Common variables to be included
+app_name: "test_application"
+app_version: "1.0.0"
+app_config:
+  debug: false
+  log_level: "info"
+  database:
+    host: "localhost"
+    port: 5432
+    name: "app_db"
+  cache:
+    redis_host: "localhost"
+    redis_port: 6379
+    ttl: 3600
+
+deployment_settings:
+  rollback_enabled: true
+  health_check_url: "/health"
+  timeout: 30

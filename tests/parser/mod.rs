@@ -1,4 +1,5 @@
 mod error_path_tests;
+mod include_tests;
 mod inventory_ini_tests;
 mod inventory_main_tests;
 mod inventory_tests;

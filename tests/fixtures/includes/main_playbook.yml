@@ -1,0 +1,35 @@
+---
+# Main playbook that includes other playbooks and tasks
+- name: Main Play
+  hosts: all
+  vars:
+    main_var: "main_value"
+    shared_var: "from_main"
+  tasks:
+    - name: Task before includes
+      debug:
+        msg: "Starting main playbook with {{ main_var }}"
+
+    - include_tasks: tasks/setup.yml
+      vars:
+        setup_mode: "full"
+      when: setup_required | default(true)
+
+    - import_tasks: tasks/validation.yml
+      tags:
+        - validation
+
+    - name: Task between includes
+      debug:
+        msg: "Between includes, shared_var is {{ shared_var }}"
+
+- include_playbook: sub_playbooks/database.yml
+  vars:
+    db_environment: "test"
+    shared_var: "from_include"
+
+- import_playbook: sub_playbooks/web_servers.yml
+  when: deploy_web | default(true)
+  tags:
+    - web
+    - deployment

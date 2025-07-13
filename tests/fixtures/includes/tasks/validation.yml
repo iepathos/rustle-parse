@@ -1,0 +1,31 @@
+---
+# Validation tasks to be imported statically
+- name: Check required variables
+  assert:
+    that:
+      - main_var is defined
+      - main_var != ""
+    fail_msg: "main_var must be defined and non-empty"
+    success_msg: "Required variables are present"
+
+- name: Validate filesystem
+  stat:
+    path: "/tmp/app"
+  register: app_dir_stat
+
+- name: Ensure app directory exists
+  debug:
+    msg: "App directory exists: {{ app_dir_stat.stat.exists }}"
+
+- name: Run system checks
+  command: "{{ item }}"
+  loop:
+    - "whoami"
+    - "pwd"
+    - "date"
+  register: system_info
+  changed_when: false
+
+- name: Display system information
+  debug:
+    var: system_info

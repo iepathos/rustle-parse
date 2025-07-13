@@ -1,0 +1,7 @@
+---
+# Role handlers
+- name: restart test service
+  service:
+    name: "test_service"
+    state: restarted
+  when: role_enabled | default(true)

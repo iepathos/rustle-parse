@@ -1,0 +1,4 @@
+---
+# This creates a circular dependency by including the parent
+- name: This creates a circular dependency
+  include_tasks: circular_test.yml

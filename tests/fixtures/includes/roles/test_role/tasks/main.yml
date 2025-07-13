@@ -1,0 +1,19 @@
+---
+# Main tasks for test_role
+- name: Role task 1
+  debug:
+    msg: "Executing role task with {{ role_var | default('default_value') }}"
+
+- name: Create role-specific directory
+  file:
+    path: "/tmp/{{ role_name | default('test_role') }}"
+    state: directory
+    mode: '0755'
+
+- name: Execute role-specific command
+  command: "echo 'Role {{ role_name | default('test_role') }} executed'"
+  register: role_output
+
+- name: Display role output
+  debug:
+    var: role_output.stdout

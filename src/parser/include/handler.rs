@@ -192,6 +192,129 @@ impl IncludeHandler {
         Ok(parsed_tasks)
     }
 
+    /// Process include_playbook directive
+    pub async fn include_playbook(
+        &mut self,
+        include_spec: &IncludeSpec,
+        context: &IncludeContext,
+    ) -> Result<Vec<ParsedPlay>, ParseError> {
+        // Check if include should be processed based on when condition
+        if !self
+            .should_process_include(include_spec.when_condition.as_ref(), context)
+            .await?
+        {
+            return Ok(Vec::new());
+        }
+
+        // Resolve the playbook path
+        let resolved_path = self
+            .path_resolver
+            .resolve_path(&include_spec.file, &context.current_file)?;
+
+        // Manage include stack
+        self.include_stack.push(resolved_path.clone())?;
+
+        // Load and parse the included playbook
+        let content = self.load_file_cached(&resolved_path).await?;
+
+        // Create context for included playbook
+        let mut include_context = context.clone();
+        include_context.current_file = resolved_path.clone();
+        include_context.include_depth += 1;
+
+        // Merge include variables
+        if let Some(include_vars) = &include_spec.vars {
+            for (key, value) in include_vars {
+                let rendered_value = self
+                    .template_engine
+                    .render_value(value, &include_context.variables)?;
+                include_context
+                    .variables
+                    .insert(key.clone(), rendered_value);
+            }
+        }
+
+        // Parse playbook content as array of plays
+        let raw_plays: Vec<serde_yaml::Value> =
+            serde_yaml::from_str(&content).map_err(ParseError::Yaml)?;
+
+        let mut parsed_plays = Vec::new();
+        for raw_play_value in raw_plays.into_iter() {
+            // Parse the play with the include context
+            let raw_play: RawPlay =
+                serde_yaml::from_value(raw_play_value).map_err(ParseError::Yaml)?;
+            let play = self
+                .parse_play_with_context(raw_play, &include_context)
+                .await?;
+
+            // Apply include-level properties to the play
+            let enhanced_play = self.apply_include_properties_to_play(play, include_spec)?;
+            parsed_plays.push(enhanced_play);
+        }
+
+        // Remove from include stack
+        self.include_stack.pop();
+
+        Ok(parsed_plays)
+    }
+
+    /// Process import_playbook directive
+    pub async fn import_playbook(
+        &mut self,
+        import_spec: &ImportSpec,
+        context: &IncludeContext,
+    ) -> Result<Vec<ParsedPlay>, ParseError> {
+        // Check if import should be processed
+        if !self
+            .should_process_include(import_spec.when_condition.as_ref(), context)
+            .await?
+        {
+            return Ok(Vec::new());
+        }
+
+        // Import is processed at parse time, similar to include_playbook
+        // but with different variable scoping rules
+        let resolved_path = self
+            .path_resolver
+            .resolve_path(&import_spec.file, &context.current_file)?;
+
+        self.include_stack.push(resolved_path.clone())?;
+
+        let content = self.load_file_cached(&resolved_path).await?;
+
+        // For imports, variables are applied at parse time
+        let mut import_context = context.clone();
+        import_context.current_file = resolved_path.clone();
+        import_context.include_depth += 1;
+
+        // Apply import variables to context
+        if let Some(import_vars) = &import_spec.vars {
+            for (key, value) in import_vars {
+                let rendered_value = self
+                    .template_engine
+                    .render_value(value, &import_context.variables)?;
+                import_context.variables.insert(key.clone(), rendered_value);
+            }
+        }
+
+        // Parse and process plays immediately
+        let raw_plays: Vec<serde_yaml::Value> =
+            serde_yaml::from_str(&content).map_err(ParseError::Yaml)?;
+
+        let mut parsed_plays = Vec::new();
+        for raw_play_value in raw_plays.into_iter() {
+            let raw_play: RawPlay =
+                serde_yaml::from_value(raw_play_value).map_err(ParseError::Yaml)?;
+            let play = self
+                .parse_play_with_context(raw_play, &import_context)
+                .await?;
+            parsed_plays.push(play);
+        }
+
+        self.include_stack.pop();
+        Ok(parsed_plays)
+    }
+
     /// Check if include should be processed based on when condition
     async fn should_process_include(
         &self,
@@ -488,6 +611,213 @@ impl IncludeHandler {
             cache_stats: self.cache.stats(),
         }
     }
+
+    /// Parse a play with the given context (simplified version for include handlers)
+    async fn parse_play_with_context(
+        &self,
+        raw_play: RawPlay,
+        context: &IncludeContext,
+    ) -> Result<ParsedPlay, ParseError> {
+        // Create a simplified play parser - in a full implementation,
+        // this would delegate to the main playbook parser
+        let mut play_vars = context.variables.clone();
+
+        // Merge play vars and render any templates in them
+        if let Some(vars) = raw_play.vars {
+            // First pass: add all raw variables
+            for (key, value) in &vars {
+                play_vars.insert(key.clone(), value.clone());
+            }
+
+            // Second pass: render templates that may reference other variables
+            for (key, value) in vars {
+                let rendered_value = self.template_engine.render_value(&value, &play_vars)?;
+                play_vars.insert(key, rendered_value);
+            }
+        }
+
+        // Parse hosts pattern and render templates
+        let hosts = match raw_play.hosts {
+            Some(RawHostPattern::Single(host)) => {
+                let rendered_host = if host.contains("{{") && host.contains("}}") {
+                    self.template_engine.render_string(&host, &play_vars)?
+                } else {
+                    host
+                };
+
+                if rendered_host == "all" {
+                    HostPattern::All
+                } else {
+                    HostPattern::Single(rendered_host)
+                }
+            }
+            Some(RawHostPattern::Multiple(hosts)) => {
+                let mut rendered_hosts = Vec::new();
+                for host in hosts {
+                    let rendered_host = if host.contains("{{") && host.contains("}}") {
+                        self.template_engine.render_string(&host, &play_vars)?
+                    } else {
+                        host
+                    };
+                    rendered_hosts.push(rendered_host);
+                }
+                HostPattern::Multiple(rendered_hosts)
+            }
+            Some(RawHostPattern::All) => HostPattern::All,
+            None => HostPattern::Single("localhost".to_string()),
+        };
+
+        // Parse tasks
+        let mut tasks = Vec::new();
+        if let Some(raw_tasks) = raw_play.tasks {
+            for (index, raw_task_value) in raw_tasks.into_iter().enumerate() {
+                let raw_task: RawTask =
+                    serde_yaml::from_value(raw_task_value).map_err(ParseError::Yaml)?;
+                let task = self
+                    .parse_task_with_context(raw_task, context, index)
+                    .await?;
+                tasks.push(task);
+            }
+        }
+
+        // Parse handlers
+        let mut handlers = Vec::new();
+        if let Some(raw_handlers) = raw_play.handlers {
+            for (index, raw_handler_value) in raw_handlers.into_iter().enumerate() {
+                let raw_handler: RawTask =
+                    serde_yaml::from_value(raw_handler_value).map_err(ParseError::Yaml)?;
+                let handler = self
+                    .parse_task_with_context(raw_handler, context, index)
+                    .await?;
+                handlers.push(handler);
+            }
+        }
+
+        // Parse roles (simplified)
+        let mut roles = Vec::new();
+        if let Some(raw_roles) = raw_play.roles {
+            for raw_role in raw_roles {
+                let role = self.parse_role_simple(raw_role)?;
+                roles.push(role);
+            }
+        }
+
+        // Render play name through template engine
+        let rendered_name = if let Some(name) = raw_play.name {
+            if name.contains("{{") && name.contains("}}") {
+                self.template_engine.render_string(&name, &play_vars)?
+            } else {
+                name
+            }
+        } else {
+            "Unnamed play".to_string()
+        };
+
+        Ok(ParsedPlay {
+            name: rendered_name,
+            hosts,
+            vars: play_vars,
+            tasks,
+            handlers,
+            roles,
+            strategy: raw_play.strategy.unwrap_or_default(),
+            serial: raw_play.serial,
+            max_fail_percentage: raw_play.max_fail_percentage,
+        })
+    }
+
+    /// Apply include-level properties to a play
+    fn apply_include_properties_to_play(
+        &self,
+        mut play: ParsedPlay,
+        include_spec: &IncludeSpec,
+    ) -> Result<ParsedPlay, ParseError> {
+        // Apply include-level variables to play vars
+        if let Some(include_vars) = &include_spec.vars {
+            for (key, value) in include_vars {
+                play.vars.insert(key.clone(), value.clone());
+            }
+        }
+
+        // Apply tags to all tasks in the play
+        if let Some(include_tags) = &include_spec.tags {
+            for task in &mut play.tasks {
+                task.tags.extend(include_tags.clone());
+            }
+            for handler in &mut play.handlers {
+                handler.tags.extend(include_tags.clone());
+            }
+        }
+
+        // Apply when condition to all tasks
+        if let Some(include_when) = &include_spec.when_condition {
+            for task in &mut play.tasks {
+                if let Some(existing_when) = &task.when {
+                    task.when = Some(format!("({}) and ({})", existing_when, include_when));
+                } else {
+                    task.when = Some(include_when.clone());
+                }
+            }
+            for handler in &mut play.handlers {
+                if let Some(existing_when) = &handler.when {
+                    handler.when = Some(format!("({}) and ({})", existing_when, include_when));
+                } else {
+                    handler.when = Some(include_when.clone());
+                }
+            }
+        }
+
+        // Apply apply block properties
+        if let Some(apply_spec) = &include_spec.apply {
+            if let Some(apply_tags) = &apply_spec.tags {
+                for task in &mut play.tasks {
+                    task.tags.extend(apply_tags.clone());
+                }
+                for handler in &mut play.handlers {
+                    handler.tags.extend(apply_tags.clone());
+                }
+            }
+
+            if let Some(apply_when) = &apply_spec.when_condition {
+                for task in &mut play.tasks {
+                    if let Some(existing_when) = &task.when {
+                        task.when = Some(format!("({}) and ({})", existing_when, apply_when));
+                    } else {
+                        task.when = Some(apply_when.clone());
+                    }
+                }
+                for handler in &mut play.handlers {
+                    if let Some(existing_when) = &handler.when {
+                        handler.when = Some(format!("({}) and ({})", existing_when, apply_when));
+                    } else {
+                        handler.when = Some(apply_when.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(play)
+    }
+
+    /// Simple role parser for included playbooks
+    fn parse_role_simple(&self, raw_role: RawRole) -> Result<ParsedRole, ParseError> {
+        match raw_role {
+            RawRole::String(name) => Ok(ParsedRole {
+                name,
+                src: None,
+                version: None,
+                vars: HashMap::new(),
+                tags: Vec::new(),
+            }),
+            RawRole::Object(role_obj) => Ok(ParsedRole {
+                name: role_obj.name,
+                src: role_obj.src,
+                version: role_obj.version,
+                vars: role_obj.vars.unwrap_or_default(),
+                tags: role_obj.tags.unwrap_or_default(),
+            }),
+        }
+    }
 }
 
 /// Statistics about include processing
@@ -515,6 +845,44 @@ struct RawTask {
     delegate_to: Option<String>,
     #[serde(flatten)]
     module_args: HashMap<String, serde_json::Value>,
+}
+
+// Raw data structures for playbook parsing
+#[derive(Debug, serde::Deserialize)]
+struct RawPlay {
+    name: Option<String>,
+    hosts: Option<RawHostPattern>,
+    vars: Option<HashMap<String, serde_json::Value>>,
+    tasks: Option<Vec<serde_yaml::Value>>,
+    handlers: Option<Vec<serde_yaml::Value>>,
+    roles: Option<Vec<RawRole>>,
+    strategy: Option<ExecutionStrategy>,
+    serial: Option<u32>,
+    max_fail_percentage: Option<f32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+enum RawHostPattern {
+    Single(String),
+    Multiple(Vec<String>),
+    All,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(untagged)]
+enum RawRole {
+    String(String),
+    Object(RawRoleObject),
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RawRoleObject {
+    name: String,
+    src: Option<String>,
+    version: Option<String>,
+    vars: Option<HashMap<String, serde_json::Value>>,
+    tags: Option<Vec<String>>,
 }
 
 #[cfg(test)]

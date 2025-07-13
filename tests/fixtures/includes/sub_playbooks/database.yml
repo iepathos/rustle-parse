@@ -1,0 +1,49 @@
+---
+# Database setup playbook to be included
+- name: Database Configuration Play
+  hosts: db_servers
+  vars:
+    db_port: 5432
+    db_name: "app_{{ db_environment }}"
+    shared_var: "from_database_playbook"
+  tasks:
+    - name: Install database packages
+      package:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - postgresql
+        - postgresql-contrib
+        - python3-psycopg2
+
+    - name: Create database
+      postgresql_db:
+        name: "{{ db_name }}"
+        state: present
+      become_user: postgres
+
+    - name: Configure database connection
+      template:
+        src: "pg_hba.conf.j2"
+        dest: "/etc/postgresql/{{ postgres_version | default('13') }}/main/pg_hba.conf"
+      notify:
+        - restart postgresql
+
+    - include_tasks: ../tasks/validation.yml
+      vars:
+        validation_type: "database"
+
+  handlers:
+    - name: restart postgresql
+      service:
+        name: postgresql
+        state: restarted
+
+- name: Database Monitoring Play
+  hosts: monitoring
+  tasks:
+    - name: Setup database monitoring
+      debug:
+        msg: "Setting up monitoring for {{ db_name }} on port {{ db_port }}"
+      vars:
+        monitor_db: true

@@ -1,0 +1,16 @@
+---
+# Test deeply nested includes
+- name: Nested Includes Test
+  hosts: all
+  vars:
+    nesting_level: 1
+    max_nesting: 5
+  tasks:
+    - name: Start nesting test
+      debug:
+        msg: "Starting at nesting level {{ nesting_level }}"
+
+    - include_tasks: tasks/nested_task.yml
+      vars:
+        current_level: "{{ nesting_level }}"
+      when: nesting_level <= max_nesting

@@ -1,0 +1,50 @@
+---
+# Web server playbook to be imported
+- name: Web Server Setup
+  hosts: web_servers
+  vars:
+    web_port: 80
+    ssl_port: 443
+    document_root: "/var/www/app"
+  tasks:
+    - name: Install web server
+      package:
+        name: "{{ web_server_package | default('nginx') }}"
+        state: present
+
+    - name: Configure web server
+      template:
+        src: "nginx.conf.j2"  
+        dest: "/etc/nginx/sites-available/app"
+      vars:
+        server_name: "{{ inventory_hostname }}"
+        listen_port: "{{ web_port }}"
+
+    - name: Enable site
+      file:
+        src: "/etc/nginx/sites-available/app"
+        dest: "/etc/nginx/sites-enabled/app"
+        state: link
+
+    - import_tasks: ../tasks/setup.yml
+      vars:
+        setup_mode: "web"
+      tags:
+        - web_setup
+
+    - name: Start web server
+      service:
+        name: "{{ web_server_package | default('nginx') }}"
+        state: started
+        enabled: true
+
+- name: Load Balancer Configuration
+  hosts: lb_servers
+  tasks:
+    - name: Configure load balancer
+      template:
+        src: "haproxy.cfg.j2"
+        dest: "/etc/haproxy/haproxy.cfg"
+      vars:
+        backend_servers: "{{ groups['web_servers'] | default([]) }}"
+        backend_port: "{{ web_port }}"

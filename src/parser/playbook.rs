@@ -121,8 +121,14 @@ impl<'a> PlaybookParser<'a> {
         hasher.update(content.as_bytes());
         let checksum = format!("{:x}", hasher.finalize());
 
-        // Parse YAML - Ansible playbooks are arrays of plays
-        let raw_plays: Vec<RawPlay> = serde_yaml::from_str(&content)?;
+        // Parse YAML - Ansible playbooks can be arrays of plays or include directives
+        let yaml_content: serde_yaml::Value = serde_yaml::from_str(&content)?;
+        let raw_plays: Vec<RawPlay> = if yaml_content.is_sequence() {
+            serde_yaml::from_value(yaml_content)?
+        } else {
+            // Single play or include directive
+            vec![serde_yaml::from_value(yaml_content)?]
+        };
 
         // Transform to parsed format
         let mut parsed_plays = Vec::new();
@@ -414,6 +420,12 @@ impl<'a> PlaybookParser<'a> {
             .any(|key| raw_task.module_args.contains_key(*key))
     }
 
+    /// Check if a raw play is a playbook include directive
+    fn is_include_playbook(&self, raw_task: &RawTask) -> bool {
+        raw_task.module_args.contains_key("include_playbook")
+            || raw_task.module_args.contains_key("import_playbook")
+    }
+
     /// Process task-level include directives
     async fn process_task_include(
         &self,
@@ -433,8 +445,33 @@ impl<'a> PlaybookParser<'a> {
                 .import_tasks(&import_spec, include_context)
                 .await
         } else {
-            // For now, only support include_tasks and import_tasks
+            // For now, only support include_tasks and import_tasks at task level
+            // include_playbook and import_playbook should be handled at play level
             // Other include types would be implemented here
+            Ok(Vec::new())
+        }
+    }
+
+    /// Process playbook-level include directives
+    async fn process_playbook_include(
+        &self,
+        raw_task: &RawTask,
+        include_handler: &mut IncludeHandler,
+        include_context: &IncludeContext,
+    ) -> Result<Vec<ParsedPlay>, ParseError> {
+        // Convert raw task to include specification
+        if let Some(include_playbook_value) = raw_task.module_args.get("include_playbook") {
+            let include_spec =
+                self.parse_include_playbook_spec(include_playbook_value, raw_task)?;
+            include_handler
+                .include_playbook(&include_spec, include_context)
+                .await
+        } else if let Some(import_playbook_value) = raw_task.module_args.get("import_playbook") {
+            let import_spec = self.parse_import_playbook_spec(import_playbook_value, raw_task)?;
+            include_handler
+                .import_playbook(&import_spec, include_context)
+                .await
+        } else {
             Ok(Vec::new())
         }
     }
@@ -477,6 +514,56 @@ impl<'a> PlaybookParser<'a> {
             _ => {
                 return Err(ParseError::InvalidIncludeDirective {
                     message: "import_tasks must specify a file path".to_string(),
+                });
+            }
+        };
+
+        Ok(crate::parser::include::ImportSpec {
+            file,
+            vars: raw_task.vars.clone(),
+            when_condition: raw_task.when.clone(),
+            tags: raw_task.tags.clone(),
+        })
+    }
+
+    /// Parse include_playbook specification from raw task
+    fn parse_include_playbook_spec(
+        &self,
+        include_value: &serde_json::Value,
+        raw_task: &RawTask,
+    ) -> Result<crate::parser::include::IncludeSpec, ParseError> {
+        let file = match include_value {
+            serde_json::Value::String(file_path) => file_path.clone(),
+            _ => {
+                return Err(ParseError::InvalidIncludeDirective {
+                    message: "include_playbook must specify a file path".to_string(),
+                });
+            }
+        };
+
+        Ok(crate::parser::include::IncludeSpec {
+            file,
+            vars: raw_task.vars.clone(),
+            when_condition: raw_task.when.clone(),
+            tags: raw_task.tags.clone(),
+            apply: None, // TODO: Parse apply block from raw task
+            delegate_to: raw_task.delegate_to.clone(),
+            delegate_facts: None, // TODO: Extract from raw task if present
+            run_once: None,       // TODO: Extract from raw task if present
+        })
+    }
+
+    /// Parse import_playbook specification from raw task
+    fn parse_import_playbook_spec(
+        &self,
+        import_value: &serde_json::Value,
+        raw_task: &RawTask,
+    ) -> Result<crate::parser::include::ImportSpec, ParseError> {
+        let file = match import_value {
+            serde_json::Value::String(file_path) => file_path.clone(),
+            _ => {
+                return Err(ParseError::InvalidIncludeDirective {
+                    message: "import_playbook must specify a file path".to_string(),
                 });
             }
         };

@@ -1,0 +1,37 @@
+---
+# Test conditional includes with complex when conditions
+- name: Conditional Includes Test
+  hosts: all
+  vars:
+    environment: "production"
+    feature_flags:
+      enable_monitoring: true
+      enable_backup: false
+      debug_mode: false
+  tasks:
+    - include_tasks: tasks/setup.yml
+      when: environment == "production"
+      vars:
+        setup_mode: "production"
+
+    - include_tasks: tasks/validation.yml
+      when: 
+        - feature_flags.enable_monitoring
+        - environment in ["staging", "production"]
+      tags:
+        - monitoring
+
+    - import_tasks: tasks/setup.yml
+      when: feature_flags.debug_mode
+      vars:
+        setup_mode: "debug"
+
+- include_playbook: sub_playbooks/database.yml
+  when: "'db_servers' in groups"
+  vars:
+    db_environment: "{{ environment }}"
+
+- import_playbook: sub_playbooks/web_servers.yml
+  when: 
+    - environment != "development"
+    - feature_flags.enable_monitoring | default(false)

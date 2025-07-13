@@ -404,10 +404,18 @@ impl IncludeHandler {
             .id
             .clone()
             .unwrap_or_else(|| format!("task_{index}"));
-        let name = raw_task
-            .name
-            .clone()
-            .unwrap_or_else(|| "Unnamed task".to_string());
+
+        // Render task name through template engine if it contains variables
+        let name = if let Some(raw_name) = raw_task.name.clone() {
+            if raw_name.contains("{{") && raw_name.contains("}}") {
+                self.template_engine
+                    .render_string(&raw_name, &context.variables)?
+            } else {
+                raw_name
+            }
+        } else {
+            "Unnamed task".to_string()
+        };
 
         // Extract module and args (simplified)
         let (module, args) = self.extract_module_and_args(&raw_task)?;
@@ -551,6 +559,7 @@ impl IncludeHandler {
             "group",
             "cron",
             "systemd",
+            "assert",
         ];
 
         for &key in &module_keys {

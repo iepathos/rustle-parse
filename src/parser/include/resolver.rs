@@ -11,8 +11,10 @@ pub struct PathResolver {
 
 impl PathResolver {
     pub fn new(base_path: PathBuf) -> Self {
+        // Canonicalize base_path to ensure consistent path comparison
+        let canonical_base = base_path.canonicalize().unwrap_or(base_path);
         Self {
-            base_path,
+            base_path: canonical_base,
             allow_absolute_paths: false,
             strict_permissions: true,
         }
@@ -143,24 +145,30 @@ impl PathResolver {
 
         // Check for suspicious path components if strict permissions enabled
         if self.strict_permissions {
-            for component in path.components() {
-                if let std::path::Component::Normal(os_str) = component {
-                    if let Some(str_component) = os_str.to_str() {
-                        // Block hidden files and suspicious patterns
-                        if str_component.starts_with('.') && str_component.len() > 1 {
-                            return Err(ParseError::SecurityViolation {
-                                message: format!(
-                                    "Hidden file access not allowed: {}",
-                                    str_component
-                                ),
-                            });
-                        }
+            // Only check the relative path components, not the base path
+            if let Ok(relative_path) = path.strip_prefix(&self.base_path) {
+                for component in relative_path.components() {
+                    if let std::path::Component::Normal(os_str) = component {
+                        if let Some(str_component) = os_str.to_str() {
+                            // Block hidden files and suspicious patterns
+                            if str_component.starts_with('.') && str_component.len() > 1 {
+                                return Err(ParseError::SecurityViolation {
+                                    message: format!(
+                                        "Hidden file access not allowed: {}",
+                                        str_component
+                                    ),
+                                });
+                            }
 
-                        // Block suspicious patterns
-                        if str_component.contains("..") || str_component.contains("~") {
-                            return Err(ParseError::SecurityViolation {
-                                message: format!("Suspicious path component: {}", str_component),
-                            });
+                            // Block suspicious patterns
+                            if str_component.contains("..") || str_component.contains("~") {
+                                return Err(ParseError::SecurityViolation {
+                                    message: format!(
+                                        "Suspicious path component: {}",
+                                        str_component
+                                    ),
+                                });
+                            }
                         }
                     }
                 }
@@ -213,7 +221,9 @@ mod tests {
             .unwrap();
 
         assert!(resolved.ends_with("subdir/task.yml"));
-        assert!(resolved.starts_with(&base_path));
+        // Use canonicalized base_path for comparison
+        let canonical_base = base_path.canonicalize().unwrap();
+        assert!(resolved.starts_with(&canonical_base));
     }
 
     #[test]

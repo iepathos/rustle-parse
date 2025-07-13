@@ -11,6 +11,10 @@ impl TemplateEngine {
     pub fn new() -> Self {
         let mut env = Environment::new();
 
+        // Configure to be more lenient with undefined variables
+        // This prevents errors when variables are not yet defined during parsing
+        env.set_undefined_behavior(minijinja::UndefinedBehavior::Lenient);
+
         // Add Ansible-compatible filters
         env.add_filter("default", filters::default_filter);
         env.add_filter("mandatory", filters::mandatory_filter);

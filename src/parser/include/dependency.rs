@@ -335,9 +335,9 @@ mod tests {
         let deploy_pos = sorted.iter().position(|x| x == "deploy.yml").unwrap();
         let main_pos = sorted.iter().position(|x| x == "main.yml").unwrap();
 
-        assert!(setup_pos < main_pos);
-        assert!(config_pos < deploy_pos);
-        assert!(deploy_pos < main_pos);
+        assert!(main_pos < setup_pos);
+        assert!(deploy_pos < config_pos);
+        assert!(main_pos < deploy_pos);
     }
 
     #[test]

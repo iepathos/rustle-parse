@@ -347,11 +347,15 @@ impl<'a> PlaybookParser<'a> {
         // Parse tasks with include support
         let mut tasks = Vec::new();
         if let Some(raw_tasks) = raw_play.tasks {
+            // Create a new include context with play vars
+            let mut play_include_context = include_context.clone();
+            play_include_context.variables = play_vars.clone();
+
             for (index, raw_task) in raw_tasks.into_iter().enumerate() {
                 // Check if this is an include directive
                 if self.is_include_task(&raw_task) {
                     let included_tasks = self
-                        .process_task_include(&raw_task, include_handler, include_context)
+                        .process_task_include(&raw_task, include_handler, &play_include_context)
                         .await?;
                     tasks.extend(included_tasks);
                 } else {
@@ -673,6 +677,7 @@ impl<'a> PlaybookParser<'a> {
             "group",
             "cron",
             "systemd",
+            "assert",
         ];
 
         for &key in &module_keys {

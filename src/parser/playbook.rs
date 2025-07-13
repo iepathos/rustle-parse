@@ -706,6 +706,10 @@ impl<'a> PlaybookParser<'a> {
         // Render templates in args
         let rendered_args = self.render_task_args(args, vars).await?;
 
+        // Process boolean-or-string fields with template resolution
+        let changed_when = self.convert_boolean_or_string_field(raw_task.changed_when, vars)?;
+        let failed_when = self.convert_boolean_or_string_field(raw_task.failed_when, vars)?;
+
         Ok(ParsedTask {
             id,
             name,
@@ -716,12 +720,33 @@ impl<'a> PlaybookParser<'a> {
             loop_items: raw_task.loop_items,
             tags: raw_task.tags.unwrap_or_default(),
             notify: raw_task.notify.unwrap_or_default(),
-            changed_when: raw_task.changed_when,
-            failed_when: raw_task.failed_when,
+            changed_when,
+            failed_when,
             ignore_errors: raw_task.ignore_errors.unwrap_or(false),
             delegate_to: raw_task.delegate_to,
             dependencies: Vec::new(), // TODO: Extract dependencies from task relationships
         })
+    }
+
+    /// Convert boolean-or-string field with template resolution
+    fn convert_boolean_or_string_field(
+        &self,
+        field: Option<BooleanOrString>,
+        vars: &HashMap<String, serde_json::Value>,
+    ) -> Result<Option<BooleanOrString>, ParseError> {
+        match field {
+            None => Ok(None),
+            Some(BooleanOrString::Boolean(b)) => Ok(Some(BooleanOrString::Boolean(b))),
+            Some(BooleanOrString::String(s)) => {
+                let resolved = self.template_engine.render_string(&s, vars)?;
+                // Try to parse resolved template as boolean
+                match resolved.to_lowercase().as_str() {
+                    "true" | "yes" | "on" => Ok(Some(BooleanOrString::Boolean(true))),
+                    "false" | "no" | "off" => Ok(Some(BooleanOrString::Boolean(false))),
+                    _ => Ok(Some(BooleanOrString::String(resolved))),
+                }
+            }
+        }
     }
 
     fn parse_role(&self, raw_role: RawRole) -> Result<ParsedRole, ParseError> {
@@ -885,8 +910,10 @@ struct RawTask {
     tags: Option<Vec<String>>,
     #[serde(deserialize_with = "deserialize_notify", default)]
     notify: Option<Vec<String>>,
-    changed_when: Option<String>,
-    failed_when: Option<String>,
+    #[serde(deserialize_with = "deserialize_boolean_or_string", default)]
+    changed_when: Option<BooleanOrString>,
+    #[serde(deserialize_with = "deserialize_boolean_or_string", default)]
+    failed_when: Option<BooleanOrString>,
     #[serde(deserialize_with = "deserialize_yaml_bool", default)]
     ignore_errors: Option<bool>,
     delegate_to: Option<String>,
@@ -967,6 +994,40 @@ where
             _ => Err(Error::custom(format!("Invalid boolean string: {s}"))),
         },
         Some(_) => Err(Error::custom("Expected boolean or boolean string")),
+    }
+}
+
+// Custom deserializer for boolean-or-string fields like changed_when and failed_when
+pub fn deserialize_boolean_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<BooleanOrString>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(serde_yaml::Value::Bool(b)) => Ok(Some(BooleanOrString::Boolean(b))),
+        Some(serde_yaml::Value::String(s)) => {
+            // Try to parse as boolean first for string representations
+            match s.to_lowercase().as_str() {
+                "true" | "yes" | "on" => Ok(Some(BooleanOrString::Boolean(true))),
+                "false" | "no" | "off" => Ok(Some(BooleanOrString::Boolean(false))),
+                _ => Ok(Some(BooleanOrString::String(s))),
+            }
+        },
+        Some(serde_yaml::Value::Number(_)) => Err(D::Error::custom(
+            "numeric values not supported for boolean/string fields, use 'true'/'false' or a string expression"
+        )),
+        Some(serde_yaml::Value::Sequence(_)) => Err(D::Error::custom(
+            "arrays not supported for boolean/string fields"
+        )),
+        Some(other) => Err(D::Error::invalid_type(
+            serde::de::Unexpected::Other(&format!("{other:?}")),
+            &"boolean literal (true/false) or string expression"
+        )),
     }
 }
 
@@ -1179,5 +1240,151 @@ notify:
 "#;
         let task: Result<RawTask, _> = serde_yaml::from_str(yaml_nested_array);
         assert!(task.is_err());
+    }
+
+    #[test]
+    fn test_boolean_literal_parsing() {
+        let yaml = r#"
+name: Test task
+changed_when: false
+failed_when: true
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert_eq!(task.changed_when, Some(BooleanOrString::Boolean(false)));
+        assert_eq!(task.failed_when, Some(BooleanOrString::Boolean(true)));
+    }
+
+    #[test]
+    fn test_string_boolean_parsing() {
+        let yaml = r#"
+name: Test task
+changed_when: "false"
+failed_when: "yes"
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert_eq!(task.changed_when, Some(BooleanOrString::Boolean(false)));
+        assert_eq!(task.failed_when, Some(BooleanOrString::Boolean(true)));
+    }
+
+    #[test]
+    fn test_conditional_expression_parsing() {
+        let yaml = r#"
+name: Test task
+changed_when: "result.rc != 0"
+failed_when: "ansible_hostname == 'test'"
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert!(matches!(
+            task.changed_when,
+            Some(BooleanOrString::String(_))
+        ));
+        assert!(matches!(task.failed_when, Some(BooleanOrString::String(_))));
+
+        if let Some(BooleanOrString::String(s)) = &task.changed_when {
+            assert_eq!(s, "result.rc != 0");
+        }
+        if let Some(BooleanOrString::String(s)) = &task.failed_when {
+            assert_eq!(s, "ansible_hostname == 'test'");
+        }
+    }
+
+    #[test]
+    fn test_boolean_string_variations() {
+        // Test all YAML boolean variations
+        let test_cases = vec![
+            ("true", true),
+            ("True", true),
+            ("TRUE", true),
+            ("yes", true),
+            ("Yes", true),
+            ("YES", true),
+            ("on", true),
+            ("On", true),
+            ("ON", true),
+            ("false", false),
+            ("False", false),
+            ("FALSE", false),
+            ("no", false),
+            ("No", false),
+            ("NO", false),
+            ("off", false),
+            ("Off", false),
+            ("OFF", false),
+        ];
+
+        for (yaml_value, expected_bool) in test_cases {
+            let yaml = format!(
+                r#"
+name: Test task
+changed_when: "{}"
+"#,
+                yaml_value
+            );
+            let task: Result<RawTask, _> = serde_yaml::from_str(&yaml);
+            assert!(
+                task.is_ok(),
+                "Failed to parse YAML with value: {}",
+                yaml_value
+            );
+            let task = task.unwrap();
+            assert_eq!(
+                task.changed_when,
+                Some(BooleanOrString::Boolean(expected_bool)),
+                "Value '{}' should parse as boolean {}",
+                yaml_value,
+                expected_bool
+            );
+        }
+    }
+
+    #[test]
+    fn test_invalid_boolean_or_string_types() {
+        // Test invalid numeric value
+        let yaml_number = r#"
+name: Test task
+changed_when: 123
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_number);
+        assert!(task.is_err());
+
+        // Test invalid array value
+        let yaml_array = r#"
+name: Test task
+changed_when: 
+  - item1
+  - item2
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_array);
+        assert!(task.is_err());
+
+        // Test invalid object value
+        let yaml_object = r#"
+name: Test task
+changed_when:
+  condition: "result.rc != 0"
+  operator: "!="
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml_object);
+        assert!(task.is_err());
+    }
+
+    #[test]
+    fn test_mixed_boolean_and_string_usage() {
+        let yaml = r#"
+name: Test task
+changed_when: false
+failed_when: "result.failed"
+"#;
+        let task: Result<RawTask, _> = serde_yaml::from_str(yaml);
+        assert!(task.is_ok());
+        let task = task.unwrap();
+        assert_eq!(task.changed_when, Some(BooleanOrString::Boolean(false)));
+        assert!(matches!(task.failed_when, Some(BooleanOrString::String(_))));
     }
 }

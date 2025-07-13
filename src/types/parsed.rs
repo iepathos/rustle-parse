@@ -3,6 +3,61 @@ use std::collections::HashMap;
 
 pub type Value = serde_json::Value;
 
+/// Represents a field that can contain either a boolean literal or a string expression.
+///
+/// Ansible allows conditional fields like `changed_when` and `failed_when` to contain:
+/// - Boolean literals: `true`, `false`, `yes`, `no`, `on`, `off`
+/// - String expressions: `"result.rc != 0"`, `"{{ some_var }}"`
+///
+/// # Examples
+///
+/// ```yaml
+/// # Boolean literal
+/// changed_when: false
+///
+/// # String expression  
+/// changed_when: "result.rc != 0"
+///
+/// # Template variable
+/// failed_when: "{{ custom_condition }}"
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BooleanOrString {
+    /// A boolean literal value
+    Boolean(bool),
+    /// A string expression or template
+    String(String),
+}
+
+impl From<bool> for BooleanOrString {
+    fn from(value: bool) -> Self {
+        BooleanOrString::Boolean(value)
+    }
+}
+
+impl From<String> for BooleanOrString {
+    fn from(value: String) -> Self {
+        BooleanOrString::String(value)
+    }
+}
+
+impl BooleanOrString {
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            BooleanOrString::Boolean(b) => Some(*b),
+            BooleanOrString::String(_) => None,
+        }
+    }
+
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            BooleanOrString::Boolean(_) => None,
+            BooleanOrString::String(s) => Some(s.as_str()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedPlaybook {
     pub metadata: PlaybookMetadata,
@@ -95,8 +150,8 @@ pub struct ParsedTask {
     pub loop_items: Option<Value>,
     pub tags: Vec<String>,
     pub notify: Vec<String>,
-    pub changed_when: Option<String>,
-    pub failed_when: Option<String>,
+    pub changed_when: Option<BooleanOrString>,
+    pub failed_when: Option<BooleanOrString>,
     pub ignore_errors: bool,
     pub delegate_to: Option<String>,
     pub dependencies: Vec<String>,

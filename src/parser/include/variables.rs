@@ -102,6 +102,7 @@ impl VariableIncludeProcessor {
     }
 
     /// Recursively load variables from directory
+    #[allow(clippy::too_many_arguments)]
     fn load_vars_recursive<'a>(
         &'a self,
         dir: &'a Path,

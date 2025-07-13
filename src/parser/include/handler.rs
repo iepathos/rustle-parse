@@ -857,8 +857,16 @@ struct RawTask {
     loop_items: Option<serde_json::Value>,
     tags: Option<Vec<String>>,
     notify: Option<Vec<String>>,
-    changed_when: Option<String>,
-    failed_when: Option<String>,
+    #[serde(
+        deserialize_with = "crate::parser::playbook::deserialize_boolean_or_string",
+        default
+    )]
+    changed_when: Option<crate::types::parsed::BooleanOrString>,
+    #[serde(
+        deserialize_with = "crate::parser::playbook::deserialize_boolean_or_string",
+        default
+    )]
+    failed_when: Option<crate::types::parsed::BooleanOrString>,
     #[serde(deserialize_with = "deserialize_yaml_bool", default)]
     ignore_errors: Option<bool>,
     delegate_to: Option<String>,

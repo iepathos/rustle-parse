@@ -268,8 +268,14 @@ async fn test_parse_playbook_with_loops_and_conditionals() {
         conditional_task.when,
         Some("ansible_os_family == \"RedHat\"".to_string())
     );
-    assert_eq!(conditional_task.changed_when, Some("false".to_string()));
-    assert_eq!(conditional_task.failed_when, Some("false".to_string()));
+    assert_eq!(
+        conditional_task.changed_when,
+        Some(rustle_parse::types::parsed::BooleanOrString::Boolean(false))
+    );
+    assert_eq!(
+        conditional_task.failed_when,
+        Some(rustle_parse::types::parsed::BooleanOrString::Boolean(false))
+    );
     assert_eq!(conditional_task.ignore_errors, true);
 
     // Delegation task

@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_apply_task_transformations() {
-        let mut task = ParsedTask {
+        let task = ParsedTask {
             id: "test_task".to_string(),
             name: "Test Task".to_string(),
             module: "debug".to_string(),

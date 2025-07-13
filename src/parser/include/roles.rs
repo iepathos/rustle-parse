@@ -572,7 +572,7 @@ mod tests {
 
     #[test]
     fn test_apply_when_to_tasks() {
-        let mut tasks = vec![
+        let tasks = vec![
             ParsedTask {
                 id: "task1".to_string(),
                 name: "Task 1".to_string(),

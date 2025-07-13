@@ -405,7 +405,7 @@ impl IncludeHandler {
     async fn parse_task_with_context(
         &self,
         raw_task: RawTask,
-        context: &IncludeContext,
+        _context: &IncludeContext,
         index: usize,
     ) -> Result<ParsedTask, ParseError> {
         // This is a simplified task parser - in a full implementation,
@@ -877,7 +877,7 @@ where
 {
     use serde::de::Error;
 
-    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
+    let value: Option<serde_yaml::Value> = serde::Deserialize::deserialize(deserializer)?;
     match value {
         None => Ok(None),
         Some(serde_yaml::Value::Bool(b)) => Ok(Some(b)),

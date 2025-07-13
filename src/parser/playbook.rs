@@ -281,8 +281,14 @@ impl<'a> PlaybookParser<'a> {
             }
         }
 
-        // Don't render play name - preserve templates for runtime
-        let play_name = raw_play.name.unwrap_or_else(|| "Unnamed play".to_string());
+        // Render play name if it contains templates
+        let play_name = match raw_play.name {
+            Some(name) if name.contains("{{") && name.contains("}}") => {
+                self.template_engine.render_string(&name, &play_vars)?
+            }
+            Some(name) => name,
+            None => "Unnamed play".to_string(),
+        };
 
         Ok(ParsedPlay {
             name: play_name,
@@ -390,8 +396,14 @@ impl<'a> PlaybookParser<'a> {
             }
         }
 
-        // Don't render play name - preserve templates for runtime
-        let play_name = raw_play.name.unwrap_or_else(|| "Unnamed play".to_string());
+        // Render play name if it contains templates
+        let play_name = match raw_play.name {
+            Some(name) if name.contains("{{") && name.contains("}}") => {
+                self.template_engine.render_string(&name, &play_vars)?
+            }
+            Some(name) => name,
+            None => "Unnamed play".to_string(),
+        };
 
         Ok(ParsedPlay {
             name: play_name,

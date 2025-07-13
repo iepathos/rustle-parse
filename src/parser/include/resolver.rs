@@ -244,15 +244,15 @@ mod tests {
     #[test]
     fn test_allow_absolute_path_when_enabled() {
         let temp_dir = TempDir::new().unwrap();
-        let resolver = PathResolver::new(temp_dir.path().to_path_buf()).with_absolute_paths(true);
+        let _resolver = PathResolver::new(temp_dir.path().to_path_buf()).with_absolute_paths(true);
 
         // Create a test file in allowed location
         let allowed_dir = temp_dir.path().join("etc/ansible");
         fs::create_dir_all(&allowed_dir).unwrap();
         fs::write(allowed_dir.join("test.yml"), "").unwrap();
 
-        let current_file = temp_dir.path().join("main.yml");
-        let abs_path = allowed_dir.join("test.yml");
+        let _current_file = temp_dir.path().join("main.yml");
+        let _abs_path = allowed_dir.join("test.yml");
 
         // This would work if we could canonicalize the path properly
         // In real usage, the path validation would work with proper filesystem setup

@@ -24,7 +24,7 @@
     - "pwd"
     - "date"
   register: system_info
-  changed_when: false
+  changed_when: "false"
 
 - name: Display system information
   debug:

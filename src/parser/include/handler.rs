@@ -323,9 +323,19 @@ impl IncludeHandler {
     ) -> Result<bool, ParseError> {
         if let Some(when_condition) = when_condition {
             // Evaluate the when condition using template engine
-            let result = self
+            // If we get an undefined value error, treat it as false (following Ansible behavior)
+            let result = match self
                 .template_engine
-                .render_string(&format!("{{{{ {when_condition} }}}}"), &context.variables)?;
+                .render_string(&format!("{{{{ {when_condition} }}}}"), &context.variables)
+            {
+                Ok(rendered) => rendered,
+                Err(ParseError::Template { message, .. }) if message.contains("undefined") => {
+                    // For undefined variables in when conditions, evaluate to false
+                    // This matches Ansible's behavior
+                    return Ok(false);
+                }
+                Err(e) => return Err(e),
+            };
 
             // Parse result as boolean
             match result.trim().to_lowercase().as_str() {
@@ -405,29 +415,23 @@ impl IncludeHandler {
             .clone()
             .unwrap_or_else(|| format!("task_{index}"));
 
-        // Render task name through template engine if it contains variables
-        let name = if let Some(raw_name) = raw_task.name.clone() {
-            if raw_name.contains("{{") && raw_name.contains("}}") {
-                self.template_engine
-                    .render_string(&raw_name, &context.variables)?
-            } else {
-                raw_name
-            }
-        } else {
-            "Unnamed task".to_string()
-        };
+        // Don't render task name - preserve templates for runtime
+        let name = raw_task
+            .name
+            .clone()
+            .unwrap_or_else(|| "Unnamed task".to_string());
 
         // Extract module and args (simplified)
         let (module, args) = self.extract_module_and_args(&raw_task)?;
 
-        // Render templates in args
-        let rendered_args = self.render_task_args(args, &context.variables).await?;
+        // Don't render templates in args - preserve them for runtime evaluation
+        let normalized_args = args;
 
         Ok(ParsedTask {
             id,
             name,
             module,
-            args: rendered_args,
+            args: normalized_args,
             vars: raw_task.vars.unwrap_or_default(),
             when: raw_task.when,
             loop_items: raw_task.loop_items,
@@ -541,6 +545,11 @@ impl IncludeHandler {
             "debug",
             "set_fact",
             "include",
+            "include_tasks",
+            "import_tasks",
+            "include_role",
+            "import_role",
+            "include_vars",
             "block",
             "rescue",
             "always",
@@ -560,6 +569,7 @@ impl IncludeHandler {
             "cron",
             "systemd",
             "assert",
+            "postgresql_db",
         ];
 
         for &key in &module_keys {
@@ -586,8 +596,14 @@ impl IncludeHandler {
             }
         }
 
+        // Provide more context about the failed task
+        let available_modules: Vec<String> = raw_task.module_args.keys().cloned().collect();
+        let task_name = raw_task.name.as_deref().unwrap_or("unnamed");
         Err(ParseError::InvalidStructure {
-            message: "No valid module found in task".to_string(),
+            message: format!("No valid module found in task '{}'. Available keys: {:?}. Known modules: include_tasks={}, import_tasks={}", 
+                task_name, available_modules, 
+                module_keys.contains(&"include_tasks"), 
+                module_keys.contains(&"import_tasks")),
         })
     }
 
@@ -711,19 +727,11 @@ impl IncludeHandler {
             }
         }
 
-        // Render play name through template engine
-        let rendered_name = if let Some(name) = raw_play.name {
-            if name.contains("{{") && name.contains("}}") {
-                self.template_engine.render_string(&name, &play_vars)?
-            } else {
-                name
-            }
-        } else {
-            "Unnamed play".to_string()
-        };
+        // Don't render play name - preserve templates for runtime
+        let play_name = raw_play.name.unwrap_or_else(|| "Unnamed play".to_string());
 
         Ok(ParsedPlay {
-            name: rendered_name,
+            name: play_name,
             hosts,
             vars: play_vars,
             tasks,
@@ -850,10 +858,36 @@ struct RawTask {
     notify: Option<Vec<String>>,
     changed_when: Option<String>,
     failed_when: Option<String>,
+    #[serde(deserialize_with = "deserialize_yaml_bool", default)]
     ignore_errors: Option<bool>,
     delegate_to: Option<String>,
+    #[serde(rename = "become", deserialize_with = "deserialize_yaml_bool", default)]
+    r#become: Option<bool>,
+    become_user: Option<String>,
+    become_method: Option<String>,
+    register: Option<String>,
     #[serde(flatten)]
     module_args: HashMap<String, serde_json::Value>,
+}
+
+// Custom deserializer for boolean fields that handles YAML boolean strings
+fn deserialize_yaml_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(serde_yaml::Value::Bool(b)) => Ok(Some(b)),
+        Some(serde_yaml::Value::String(s)) => match s.to_lowercase().as_str() {
+            "yes" | "true" | "on" => Ok(Some(true)),
+            "no" | "false" | "off" => Ok(Some(false)),
+            _ => Err(Error::custom(format!("Invalid boolean string: {}", s))),
+        },
+        Some(_) => Err(Error::custom("Expected boolean or boolean string")),
+    }
 }
 
 // Raw data structures for playbook parsing
@@ -1007,6 +1041,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(tasks.len(), 1);
-        assert!(tasks[0].name.contains("nginx"));
+        // Since we don't render templates during parsing, check for the template
+        assert_eq!(tasks[0].name, "Install {{ package_name }}");
     }
 }

@@ -1,5 +1,5 @@
 use crate::parser::error::ParseError;
-use crate::parser::include::{IncludeContext, IncludeHandler};
+use crate::parser::include::{ImportSpec, IncludeContext, IncludeHandler, IncludeSpec};
 use crate::parser::template::TemplateEngine;
 use crate::types::parsed::*;
 use chrono::Utc;
@@ -123,11 +123,12 @@ impl<'a> PlaybookParser<'a> {
 
         // Parse YAML - Ansible playbooks can be arrays of plays or include directives
         let yaml_content: serde_yaml::Value = serde_yaml::from_str(&content)?;
-        let raw_plays: Vec<RawPlay> = if yaml_content.is_sequence() {
-            serde_yaml::from_value(yaml_content)?
+
+        // Process each item in the playbook
+        let items = if let serde_yaml::Value::Sequence(seq) = yaml_content {
+            seq
         } else {
-            // Single play or include directive
-            vec![serde_yaml::from_value(yaml_content)?]
+            vec![yaml_content]
         };
 
         // Transform to parsed format
@@ -148,8 +149,22 @@ impl<'a> PlaybookParser<'a> {
             when_condition: None,
         };
 
-        // Process each play
-        for raw_play in raw_plays {
+        // Process each item in the playbook
+        for item in items {
+            // Check if this is a playbook include directive
+            if let Some(map) = item.as_mapping() {
+                if map.contains_key("include_playbook") || map.contains_key("import_playbook") {
+                    // This is a playbook include directive
+                    let included_plays = self
+                        .handle_playbook_include_directive(item, include_handler, &include_context)
+                        .await?;
+                    parsed_plays.extend(included_plays);
+                    continue;
+                }
+            }
+
+            // Otherwise, parse as a regular play
+            let raw_play: RawPlay = serde_yaml::from_value(item)?;
             let parsed_play = self
                 .parse_play_with_includes(
                     raw_play,
@@ -266,19 +281,11 @@ impl<'a> PlaybookParser<'a> {
             }
         }
 
-        // Render play name through template engine
-        let rendered_name = if let Some(name) = raw_play.name {
-            if name.contains("{{") && name.contains("}}") {
-                self.template_engine.render_string(&name, &play_vars)?
-            } else {
-                name
-            }
-        } else {
-            "Unnamed play".to_string()
-        };
+        // Don't render play name - preserve templates for runtime
+        let play_name = raw_play.name.unwrap_or_else(|| "Unnamed play".to_string());
 
         Ok(ParsedPlay {
-            name: rendered_name,
+            name: play_name,
             hosts,
             vars: play_vars,
             tasks,
@@ -383,19 +390,11 @@ impl<'a> PlaybookParser<'a> {
             }
         }
 
-        // Render play name through template engine
-        let rendered_name = if let Some(name) = raw_play.name {
-            if name.contains("{{") && name.contains("}}") {
-                self.template_engine.render_string(&name, &play_vars)?
-            } else {
-                name
-            }
-        } else {
-            "Unnamed play".to_string()
-        };
+        // Don't render play name - preserve templates for runtime
+        let play_name = raw_play.name.unwrap_or_else(|| "Unnamed play".to_string());
 
         Ok(ParsedPlay {
-            name: rendered_name,
+            name: play_name,
             hosts,
             vars: play_vars,
             tasks,
@@ -422,6 +421,96 @@ impl<'a> PlaybookParser<'a> {
         include_keys
             .iter()
             .any(|key| raw_task.module_args.contains_key(*key))
+    }
+
+    /// Handle playbook-level include/import directives
+    async fn handle_playbook_include_directive(
+        &self,
+        item: serde_yaml::Value,
+        include_handler: &mut IncludeHandler,
+        include_context: &IncludeContext,
+    ) -> Result<Vec<ParsedPlay>, ParseError> {
+        let map = item
+            .as_mapping()
+            .ok_or_else(|| ParseError::InvalidStructure {
+                message: "Expected mapping for playbook include".to_string(),
+            })?;
+
+        // Determine if it's include or import
+        let is_include = map.contains_key("include_playbook");
+        let directive_name = if is_include {
+            "include_playbook"
+        } else {
+            "import_playbook"
+        };
+
+        // Get the playbook path
+        let playbook_path = map
+            .get(directive_name)
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ParseError::InvalidStructure {
+                message: format!("{} requires a path", directive_name),
+            })?;
+
+        // Extract optional parameters
+        let vars = map.get("vars").and_then(|v| {
+            serde_yaml::from_value::<HashMap<String, serde_json::Value>>(v.clone()).ok()
+        });
+
+        // For when conditions, get the raw YAML value as a string
+        let when_condition = map.get("when").map(|v| {
+            // Convert YAML value to string representation
+            match v {
+                serde_yaml::Value::String(s) => s.clone(),
+                serde_yaml::Value::Bool(b) => b.to_string(),
+                serde_yaml::Value::Number(n) => n.to_string(),
+                _ => format!("{:?}", v),
+            }
+        });
+
+        let tags = map.get("tags").and_then(|v| {
+            if let Some(arr) = v.as_sequence() {
+                Some(
+                    arr.iter()
+                        .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                        .collect(),
+                )
+            } else if let Some(s) = v.as_str() {
+                Some(vec![s.to_string()])
+            } else {
+                None
+            }
+        });
+
+        if is_include {
+            // Create IncludeSpec
+            let include_spec = IncludeSpec {
+                file: playbook_path.to_string(),
+                vars,
+                when_condition,
+                tags,
+                apply: None,
+                delegate_to: None,
+                delegate_facts: None,
+                run_once: None,
+            };
+
+            include_handler
+                .include_playbook(&include_spec, include_context)
+                .await
+        } else {
+            // Create ImportSpec
+            let import_spec = ImportSpec {
+                file: playbook_path.to_string(),
+                vars,
+                when_condition,
+                tags,
+            };
+
+            include_handler
+                .import_playbook(&import_spec, include_context)
+                .await
+        }
     }
 
     /// Check if a raw play is a playbook include directive
@@ -678,6 +767,7 @@ impl<'a> PlaybookParser<'a> {
             "cron",
             "systemd",
             "assert",
+            "postgresql_db",
         ];
 
         for &key in &module_keys {
@@ -704,8 +794,14 @@ impl<'a> PlaybookParser<'a> {
             }
         }
 
+        // Provide more context about the failed task
+        let available_modules: Vec<String> = raw_task.module_args.keys().cloned().collect();
+        let task_name = raw_task.name.as_deref().unwrap_or("unnamed");
         Err(ParseError::InvalidStructure {
-            message: "No valid module found in task".to_string(),
+            message: format!("No valid module found in task '{}'. Available keys: {:?}. Known modules: include_tasks={}, import_tasks={}", 
+                task_name, available_modules, 
+                module_keys.contains(&"include_tasks"), 
+                module_keys.contains(&"import_tasks")),
         })
     }
 
@@ -775,8 +871,14 @@ struct RawTask {
     notify: Option<Vec<String>>,
     changed_when: Option<String>,
     failed_when: Option<String>,
+    #[serde(deserialize_with = "deserialize_yaml_bool", default)]
     ignore_errors: Option<bool>,
     delegate_to: Option<String>,
+    #[serde(rename = "become", deserialize_with = "deserialize_yaml_bool", default)]
+    r#become: Option<bool>,
+    become_user: Option<String>,
+    become_method: Option<String>,
+    register: Option<String>,
     #[serde(flatten)]
     module_args: HashMap<String, serde_json::Value>,
 }
@@ -825,6 +927,26 @@ where
             Unexpected::Other("non-string/array"),
             &"string or array of strings",
         )),
+    }
+}
+
+// Custom deserializer for boolean fields that handles YAML boolean strings
+fn deserialize_yaml_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let value: Option<serde_yaml::Value> = Option::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(serde_yaml::Value::Bool(b)) => Ok(Some(b)),
+        Some(serde_yaml::Value::String(s)) => match s.to_lowercase().as_str() {
+            "yes" | "true" | "on" => Ok(Some(true)),
+            "no" | "false" | "off" => Ok(Some(false)),
+            _ => Err(Error::custom(format!("Invalid boolean string: {}", s))),
+        },
+        Some(_) => Err(Error::custom("Expected boolean or boolean string")),
     }
 }
 

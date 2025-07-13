@@ -13,7 +13,7 @@
     - include_tasks: tasks/setup.yml
       vars:
         setup_mode: "full"
-      when: setup_required | default(true)
+      when: "setup_required | default(true)"
 
     - import_tasks: tasks/validation.yml
       tags:
@@ -29,7 +29,7 @@
     shared_var: "from_include"
 
 - import_playbook: sub_playbooks/web_servers.yml
-  when: deploy_web | default(true)
+  when: "deploy_web | default(true)"
   tags:
     - web
     - deployment

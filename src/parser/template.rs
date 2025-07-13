@@ -31,6 +31,11 @@ impl TemplateEngine {
         template_str: &str,
         vars: &HashMap<String, serde_json::Value>,
     ) -> Result<String, ParseError> {
+        // If the template doesn't contain any template syntax, return as-is
+        if !template_str.contains("{{") && !template_str.contains("{%") {
+            return Ok(template_str.to_string());
+        }
+
         let template =
             self.env
                 .template_from_str(template_str)

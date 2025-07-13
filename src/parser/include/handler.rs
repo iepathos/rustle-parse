@@ -460,7 +460,7 @@ impl IncludeHandler {
         if let Some(include_when) = &include_spec.when_condition {
             if let Some(existing_when) = &task.when {
                 // Combine conditions with AND
-                task.when = Some(format!("({}) and ({})", existing_when, include_when));
+                task.when = Some(format!("({existing_when}) and ({include_when})"));
             } else {
                 task.when = Some(include_when.clone());
             }
@@ -479,7 +479,7 @@ impl IncludeHandler {
 
             if let Some(apply_when) = &apply_spec.when_condition {
                 if let Some(existing_when) = &task.when {
-                    task.when = Some(format!("({}) and ({})", existing_when, apply_when));
+                    task.when = Some(format!("({existing_when}) and ({apply_when})"));
                 } else {
                     task.when = Some(apply_when.clone());
                 }
@@ -608,6 +608,7 @@ impl IncludeHandler {
     }
 
     /// Render task arguments through template engine
+    #[allow(dead_code)]
     async fn render_task_args(
         &self,
         args: HashMap<String, serde_json::Value>,
@@ -770,14 +771,14 @@ impl IncludeHandler {
         if let Some(include_when) = &include_spec.when_condition {
             for task in &mut play.tasks {
                 if let Some(existing_when) = &task.when {
-                    task.when = Some(format!("({}) and ({})", existing_when, include_when));
+                    task.when = Some(format!("({existing_when}) and ({include_when})"));
                 } else {
                     task.when = Some(include_when.clone());
                 }
             }
             for handler in &mut play.handlers {
                 if let Some(existing_when) = &handler.when {
-                    handler.when = Some(format!("({}) and ({})", existing_when, include_when));
+                    handler.when = Some(format!("({existing_when}) and ({include_when})"));
                 } else {
                     handler.when = Some(include_when.clone());
                 }
@@ -798,14 +799,14 @@ impl IncludeHandler {
             if let Some(apply_when) = &apply_spec.when_condition {
                 for task in &mut play.tasks {
                     if let Some(existing_when) = &task.when {
-                        task.when = Some(format!("({}) and ({})", existing_when, apply_when));
+                        task.when = Some(format!("({existing_when}) and ({apply_when})"));
                     } else {
                         task.when = Some(apply_when.clone());
                     }
                 }
                 for handler in &mut play.handlers {
                     if let Some(existing_when) = &handler.when {
-                        handler.when = Some(format!("({}) and ({})", existing_when, apply_when));
+                        handler.when = Some(format!("({existing_when}) and ({apply_when})"));
                     } else {
                         handler.when = Some(apply_when.clone());
                     }
@@ -862,9 +863,13 @@ struct RawTask {
     ignore_errors: Option<bool>,
     delegate_to: Option<String>,
     #[serde(rename = "become", deserialize_with = "deserialize_yaml_bool", default)]
+    #[allow(dead_code)]
     r#become: Option<bool>,
+    #[allow(dead_code)]
     become_user: Option<String>,
+    #[allow(dead_code)]
     become_method: Option<String>,
+    #[allow(dead_code)]
     register: Option<String>,
     #[serde(flatten)]
     module_args: HashMap<String, serde_json::Value>,
@@ -884,7 +889,7 @@ where
         Some(serde_yaml::Value::String(s)) => match s.to_lowercase().as_str() {
             "yes" | "true" | "on" => Ok(Some(true)),
             "no" | "false" | "off" => Ok(Some(false)),
-            _ => Err(Error::custom(format!("Invalid boolean string: {}", s))),
+            _ => Err(Error::custom(format!("Invalid boolean string: {s}"))),
         },
         Some(_) => Err(Error::custom("Expected boolean or boolean string")),
     }

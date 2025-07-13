@@ -461,7 +461,7 @@ impl<'a> PlaybookParser<'a> {
             .get(directive_name)
             .and_then(|v| v.as_str())
             .ok_or_else(|| ParseError::InvalidStructure {
-                message: format!("{} requires a path", directive_name),
+                message: format!("{directive_name} requires a path"),
             })?;
 
         // Extract optional parameters
@@ -476,7 +476,7 @@ impl<'a> PlaybookParser<'a> {
                 serde_yaml::Value::String(s) => s.clone(),
                 serde_yaml::Value::Bool(b) => b.to_string(),
                 serde_yaml::Value::Number(n) => n.to_string(),
-                _ => format!("{:?}", v),
+                _ => format!("{v:?}"),
             }
         });
 
@@ -526,6 +526,7 @@ impl<'a> PlaybookParser<'a> {
     }
 
     /// Check if a raw play is a playbook include directive
+    #[allow(dead_code)]
     fn is_include_playbook(&self, raw_task: &RawTask) -> bool {
         raw_task.module_args.contains_key("include_playbook")
             || raw_task.module_args.contains_key("import_playbook")
@@ -558,6 +559,7 @@ impl<'a> PlaybookParser<'a> {
     }
 
     /// Process playbook-level include directives
+    #[allow(dead_code)]
     async fn process_playbook_include(
         &self,
         raw_task: &RawTask,
@@ -632,6 +634,7 @@ impl<'a> PlaybookParser<'a> {
     }
 
     /// Parse include_playbook specification from raw task
+    #[allow(dead_code)]
     fn parse_include_playbook_spec(
         &self,
         include_value: &serde_json::Value,
@@ -659,6 +662,7 @@ impl<'a> PlaybookParser<'a> {
     }
 
     /// Parse import_playbook specification from raw task
+    #[allow(dead_code)]
     fn parse_import_playbook_spec(
         &self,
         import_value: &serde_json::Value,
@@ -887,9 +891,13 @@ struct RawTask {
     ignore_errors: Option<bool>,
     delegate_to: Option<String>,
     #[serde(rename = "become", deserialize_with = "deserialize_yaml_bool", default)]
+    #[allow(dead_code)]
     r#become: Option<bool>,
+    #[allow(dead_code)]
     become_user: Option<String>,
+    #[allow(dead_code)]
     become_method: Option<String>,
+    #[allow(dead_code)]
     register: Option<String>,
     #[serde(flatten)]
     module_args: HashMap<String, serde_json::Value>,
@@ -956,7 +964,7 @@ where
         Some(serde_yaml::Value::String(s)) => match s.to_lowercase().as_str() {
             "yes" | "true" | "on" => Ok(Some(true)),
             "no" | "false" | "off" => Ok(Some(false)),
-            _ => Err(Error::custom(format!("Invalid boolean string: {}", s))),
+            _ => Err(Error::custom(format!("Invalid boolean string: {s}"))),
         },
         Some(_) => Err(Error::custom("Expected boolean or boolean string")),
     }
@@ -1056,8 +1064,7 @@ mod tests {
             assert_eq!(
                 parser.normalize_yaml_value(serde_json::Value::String(test_case.to_string())),
                 serde_json::Value::String(test_case.to_string()),
-                "String '{}' should not be normalized",
-                test_case
+                "String '{test_case}' should not be normalized"
             );
         }
     }
@@ -1072,7 +1079,7 @@ mod tests {
             serde_json::Value::Bool(true),
             serde_json::Value::Bool(false),
             serde_json::Value::Number(serde_json::Number::from(42)),
-            serde_json::Value::Number(serde_json::Number::from_f64(3.14).unwrap()),
+            serde_json::Value::Number(serde_json::Number::from_f64(std::f64::consts::PI).unwrap()),
             serde_json::Value::Null,
             serde_json::json!({"key": "value"}),
             serde_json::json!(["item1", "item2"]),

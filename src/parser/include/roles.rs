@@ -198,9 +198,9 @@ impl RoleIncludeProcessor {
         tasks_from: &str,
         context: &IncludeContext,
     ) -> Result<Vec<ParsedTask>, ParseError> {
-        let tasks_path = role_path.join("tasks").join(format!("{}.yml", tasks_from));
+        let tasks_path = role_path.join("tasks").join(format!("{tasks_from}.yml"));
         if !tasks_path.exists() {
-            let tasks_path_yaml = role_path.join("tasks").join(format!("{}.yaml", tasks_from));
+            let tasks_path_yaml = role_path.join("tasks").join(format!("{tasks_from}.yaml"));
             if !tasks_path_yaml.exists() {
                 return Err(ParseError::IncludeFileNotFound {
                     file: tasks_path.to_string_lossy().to_string(),
@@ -235,9 +235,9 @@ impl RoleIncludeProcessor {
         vars_from: &str,
         _context: &IncludeContext,
     ) -> Result<HashMap<String, serde_json::Value>, ParseError> {
-        let vars_path = role_path.join("vars").join(format!("{}.yml", vars_from));
+        let vars_path = role_path.join("vars").join(format!("{vars_from}.yml"));
         if !vars_path.exists() {
-            let vars_path_yaml = role_path.join("vars").join(format!("{}.yaml", vars_from));
+            let vars_path_yaml = role_path.join("vars").join(format!("{vars_from}.yaml"));
             if !vars_path_yaml.exists() {
                 return Ok(HashMap::new());
             }
@@ -272,11 +272,11 @@ impl RoleIncludeProcessor {
     ) -> Result<HashMap<String, serde_json::Value>, ParseError> {
         let defaults_path = role_path
             .join("defaults")
-            .join(format!("{}.yml", defaults_from));
+            .join(format!("{defaults_from}.yml"));
         if !defaults_path.exists() {
             let defaults_path_yaml = role_path
                 .join("defaults")
-                .join(format!("{}.yaml", defaults_from));
+                .join(format!("{defaults_from}.yaml"));
             if !defaults_path_yaml.exists() {
                 return Ok(HashMap::new());
             }
@@ -311,11 +311,11 @@ impl RoleIncludeProcessor {
     ) -> Result<Vec<ParsedTask>, ParseError> {
         let handlers_path = role_path
             .join("handlers")
-            .join(format!("{}.yml", handlers_from));
+            .join(format!("{handlers_from}.yml"));
         if !handlers_path.exists() {
             let handlers_path_yaml = role_path
                 .join("handlers")
-                .join(format!("{}.yaml", handlers_from));
+                .join(format!("{handlers_from}.yaml"));
             if !handlers_path_yaml.exists() {
                 return Ok(Vec::new());
             }
@@ -356,15 +356,15 @@ impl RoleIncludeProcessor {
 
         // Parse as YAML array of tasks
         let raw_tasks: Vec<serde_yaml::Value> =
-            serde_yaml::from_str(&content).map_err(|e| ParseError::Yaml(e))?;
+            serde_yaml::from_str(&content).map_err(ParseError::Yaml)?;
 
         let mut parsed_tasks = Vec::new();
         for (index, _raw_task_value) in raw_tasks.into_iter().enumerate() {
             // This is a simplified task parser - in a full implementation,
             // this would use the full task parsing logic
             let task = ParsedTask {
-                id: format!("role_task_{}", index),
-                name: format!("Role task {}", index),
+                id: format!("role_task_{index}"),
+                name: format!("Role task {index}"),
                 module: "placeholder".to_string(),
                 args: HashMap::new(),
                 vars: HashMap::new(),
@@ -396,7 +396,7 @@ impl RoleIncludeProcessor {
                 })?;
 
         let vars: HashMap<String, serde_json::Value> =
-            serde_yaml::from_str(&content).map_err(|e| ParseError::Yaml(e))?;
+            serde_yaml::from_str(&content).map_err(ParseError::Yaml)?;
 
         Ok(vars)
     }
@@ -405,7 +405,7 @@ impl RoleIncludeProcessor {
     fn apply_when_to_tasks(mut tasks: Vec<ParsedTask>, when_condition: &str) -> Vec<ParsedTask> {
         for task in &mut tasks {
             if let Some(existing_when) = &task.when {
-                task.when = Some(format!("({}) and ({})", existing_when, when_condition));
+                task.when = Some(format!("({existing_when}) and ({when_condition})"));
             } else {
                 task.when = Some(when_condition.to_string());
             }
@@ -530,7 +530,7 @@ mod tests {
 
         // Create role directory structure
         let role_path = temp_dir.path().join("roles/web_server");
-        fs::create_dir_all(&role_path.join("tasks")).unwrap();
+        fs::create_dir_all(role_path.join("tasks")).unwrap();
         fs::write(role_path.join("tasks/main.yml"), "").unwrap();
 
         let current_file = temp_dir.path().join("playbook.yml");
@@ -547,7 +547,7 @@ mod tests {
         let role_path = temp_dir.path().join("web_server");
 
         // Create role vars
-        fs::create_dir_all(&role_path.join("vars")).unwrap();
+        fs::create_dir_all(role_path.join("vars")).unwrap();
         fs::write(
             role_path.join("vars/main.yml"),
             "web_server_port: 80\nweb_server_name: nginx",

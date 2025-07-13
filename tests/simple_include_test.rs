@@ -3,7 +3,6 @@ use rustle_parse::parser::{
     template::TemplateEngine,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -76,7 +75,7 @@ async fn test_basic_include_functionality() {
             println!("✅ Include playbook test passed");
         }
         Err(e) => {
-            panic!("Include playbook test failed: {:?}", e);
+            panic!("Include playbook test failed: {e:?}");
         }
     }
 
@@ -97,7 +96,7 @@ async fn test_basic_include_functionality() {
             println!("✅ Import playbook test passed");
         }
         Err(e) => {
-            panic!("Import playbook test failed: {:?}", e);
+            panic!("Import playbook test failed: {e:?}");
         }
     }
 }

@@ -114,7 +114,7 @@ impl TaskIncludeProcessor {
         if let Some(include_when) = &include_spec.when_condition {
             if let Some(existing_when) = &task.when {
                 // Combine with AND logic
-                task.when = Some(format!("({}) and ({})", existing_when, include_when));
+                task.when = Some(format!("({existing_when}) and ({include_when})"));
             } else {
                 task.when = Some(include_when.clone());
             }
@@ -128,7 +128,7 @@ impl TaskIncludeProcessor {
 
             if let Some(apply_when) = &apply_spec.when_condition {
                 if let Some(existing_when) = &task.when {
-                    task.when = Some(format!("({}) and ({})", existing_when, apply_when));
+                    task.when = Some(format!("({existing_when}) and ({apply_when})"));
                 } else {
                     task.when = Some(apply_when.clone());
                 }
@@ -321,7 +321,7 @@ mod tests {
         );
         assert_eq!(metadata.include_depth, 2);
         assert_eq!(metadata.delegate_to, Some("test_host".to_string()));
-        assert_eq!(metadata.delegate_facts, true);
-        assert_eq!(metadata.run_once, false);
+        assert!(metadata.delegate_facts);
+        assert!(!metadata.run_once);
     }
 }

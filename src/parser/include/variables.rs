@@ -118,9 +118,9 @@ impl VariableIncludeProcessor {
                 return Ok(());
             }
 
-            let mut entries = fs::read_dir(dir).await.map_err(|e| ParseError::Io(e))?;
+            let mut entries = fs::read_dir(dir).await.map_err(ParseError::Io)?;
 
-            while let Some(entry) = entries.next_entry().await.map_err(|e| ParseError::Io(e))? {
+            while let Some(entry) = entries.next_entry().await.map_err(ParseError::Io)? {
                 let path = entry.path();
                 let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
@@ -199,15 +199,15 @@ impl VariableIncludeProcessor {
         let vars: HashMap<String, serde_json::Value> = match extension {
             "json" => {
                 // JSON variables file
-                serde_json::from_str(content).map_err(|e| ParseError::Json(e))?
+                serde_json::from_str(content).map_err(ParseError::Json)?
             }
             "yml" | "yaml" => {
                 // YAML variables file
-                serde_yaml::from_str(content).map_err(|e| ParseError::Yaml(e))?
+                serde_yaml::from_str(content).map_err(ParseError::Yaml)?
             }
             _ => {
                 return Err(ParseError::InvalidIncludeDirective {
-                    message: format!("Unsupported variable file extension: {}", extension),
+                    message: format!("Unsupported variable file extension: {extension}"),
                 });
             }
         };
@@ -234,7 +234,7 @@ impl VariableIncludeProcessor {
             // Evaluate the when condition using template engine
             let result = self
                 .template_engine
-                .render_string(&format!("{{{{ {} }}}}", when_condition), &context.variables)?;
+                .render_string(&format!("{{{{ {when_condition} }}}}"), &context.variables)?;
 
             // Parse result as boolean
             match result.trim().to_lowercase().as_str() {
@@ -259,7 +259,7 @@ impl VariableIncludeProcessor {
         if path.is_absolute() {
             // For now, reject absolute paths for security
             return Err(ParseError::SecurityViolation {
-                message: format!("Absolute paths not allowed in include_vars: {}", file_path),
+                message: format!("Absolute paths not allowed in include_vars: {file_path}"),
             });
         }
 
@@ -287,8 +287,7 @@ impl VariableIncludeProcessor {
                 return Err(ParseError::InvalidVariableSyntax {
                     line: 0, // Line number not available in this context
                     message: format!(
-                        "Invalid variable name '{}'. Variable names must start with a letter or underscore and contain only letters, numbers, and underscores.",
-                        key
+                        "Invalid variable name '{key}'. Variable names must start with a letter or underscore and contain only letters, numbers, and underscores."
                     ),
                 });
             }
@@ -297,7 +296,7 @@ impl VariableIncludeProcessor {
             if Self::is_reserved_variable_name(key) {
                 return Err(ParseError::InvalidVariableSyntax {
                     line: 0,
-                    message: format!("'{}' is a reserved variable name", key),
+                    message: format!("'{key}' is a reserved variable name"),
                 });
             }
         }

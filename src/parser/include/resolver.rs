@@ -41,7 +41,7 @@ impl PathResolver {
         let resolved = if path.is_absolute() {
             if !self.allow_absolute_paths {
                 return Err(ParseError::SecurityViolation {
-                    message: format!("Absolute paths not allowed: {}", file_path),
+                    message: format!("Absolute paths not allowed: {file_path}"),
                 });
             }
             self.validate_absolute_path(path)?
@@ -154,8 +154,7 @@ impl PathResolver {
                             if str_component.starts_with('.') && str_component.len() > 1 {
                                 return Err(ParseError::SecurityViolation {
                                     message: format!(
-                                        "Hidden file access not allowed: {}",
-                                        str_component
+                                        "Hidden file access not allowed: {str_component}"
                                     ),
                                 });
                             }
@@ -163,10 +162,7 @@ impl PathResolver {
                             // Block suspicious patterns
                             if str_component.contains("..") || str_component.contains("~") {
                                 return Err(ParseError::SecurityViolation {
-                                    message: format!(
-                                        "Suspicious path component: {}",
-                                        str_component
-                                    ),
+                                    message: format!("Suspicious path component: {str_component}"),
                                 });
                             }
                         }
@@ -278,7 +274,7 @@ mod tests {
 
         // Create role directory structure
         let roles_dir = temp_dir.path().join("roles/myrole");
-        fs::create_dir_all(&roles_dir.join("tasks")).unwrap();
+        fs::create_dir_all(roles_dir.join("tasks")).unwrap();
         fs::write(roles_dir.join("tasks/main.yml"), "").unwrap();
 
         let current_file = temp_dir.path().join("playbook.yml");

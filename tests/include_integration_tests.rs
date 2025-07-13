@@ -1,11 +1,8 @@
 use rustle_parse::parser::{
-    include::{IncludeConfig, IncludeHandler},
-    playbook::PlaybookParser,
-    template::TemplateEngine,
+    include::IncludeHandler, playbook::PlaybookParser, template::TemplateEngine,
 };
-use rustle_parse::types::parsed::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use tokio::fs;
 
@@ -46,7 +43,7 @@ mod include_integration_tests {
                 println!("✅ First play has {} tasks", first_play.tasks.len());
             }
             Err(e) => {
-                panic!("Failed to parse main playbook: {:?}", e);
+                panic!("Failed to parse main playbook: {e:?}");
             }
         }
     }
@@ -77,7 +74,7 @@ mod include_integration_tests {
                 println!("✅ Environment: {:?}", first_play.vars.get("environment"));
             }
             Err(e) => {
-                println!("⚠️  Conditional includes test: {:?}", e);
+                println!("⚠️  Conditional includes test: {e:?}");
                 // This might fail due to missing template context, which is expected
             }
         }
@@ -117,7 +114,7 @@ mod include_integration_tests {
                 println!("✅ Found {} include_vars tasks", include_vars_tasks.len());
             }
             Err(e) => {
-                println!("⚠️  Include vars test: {:?}", e);
+                println!("⚠️  Include vars test: {e:?}");
             }
         }
     }
@@ -153,7 +150,7 @@ mod include_integration_tests {
                 println!("✅ Found {} role include/import tasks", role_tasks.len());
             }
             Err(e) => {
-                println!("⚠️  Include role test: {:?}", e);
+                println!("⚠️  Include role test: {e:?}");
             }
         }
     }
@@ -176,11 +173,9 @@ mod include_integration_tests {
                 println!("⚠️  Expected circular dependency error, but parsing succeeded");
             }
             Err(e) => {
-                println!("✅ Correctly detected error: {:?}", e);
+                println!("✅ Correctly detected error: {e:?}");
                 // Check if it's specifically a circular dependency error
-                if format!("{:?}", e).contains("Circular")
-                    || format!("{:?}", e).contains("circular")
-                {
+                if format!("{e:?}").contains("Circular") || format!("{e:?}").contains("circular") {
                     println!("✅ Circular dependency correctly detected");
                 }
             }
@@ -212,7 +207,7 @@ mod include_integration_tests {
                 println!("✅ Nesting configuration properly parsed");
             }
             Err(e) => {
-                println!("⚠️  Nested includes test: {:?}", e);
+                println!("⚠️  Nested includes test: {e:?}");
             }
         }
     }
@@ -222,7 +217,7 @@ mod include_integration_tests {
     async fn test_include_configuration() {
         let template_engine = TemplateEngine::new();
         let base_path = PathBuf::from("/tmp");
-        let mut handler = IncludeHandler::new(base_path, template_engine);
+        let handler = IncludeHandler::new(base_path, template_engine);
 
         // Test configuration
         let stats = handler.get_stats();
@@ -263,7 +258,7 @@ mod include_integration_tests {
                 );
             }
             Err(e) => {
-                println!("⚠️  Variable scoping test: {:?}", e);
+                println!("⚠️  Variable scoping test: {e:?}");
             }
         }
     }
@@ -286,14 +281,14 @@ mod include_integration_tests {
 
         match result {
             Ok(_) => {
-                println!("✅ Performance test completed in {:?}", duration);
+                println!("✅ Performance test completed in {duration:?}");
                 assert!(
                     duration < std::time::Duration::from_secs(5),
                     "Parsing should complete within 5 seconds"
                 );
             }
             Err(e) => {
-                println!("⚠️  Performance test failed: {:?}", e);
+                println!("⚠️  Performance test failed: {e:?}");
             }
         }
     }
@@ -321,12 +316,13 @@ mod include_integration_tests {
 
     /// Recursively copy directory contents
     fn copy_dir_recursive(
-        src: &PathBuf,
-        dst: &PathBuf,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>>
-    {
-        let src = src.clone();
-        let dst = dst.clone();
+        src: &Path,
+        dst: &Path,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + Send>,
+    > {
+        let src = src.to_path_buf();
+        let dst = dst.to_path_buf();
 
         Box::pin(async move {
             if !dst.exists() {
@@ -354,7 +350,7 @@ mod include_integration_tests {
 
     /// Create minimal fixtures for testing when real fixtures don't exist
     async fn create_minimal_fixtures(
-        fixtures_dir: &PathBuf,
+        fixtures_dir: &Path,
     ) -> Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(fixtures_dir.join("includes")).await?;
 

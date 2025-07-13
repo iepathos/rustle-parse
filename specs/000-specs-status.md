@@ -30,6 +30,7 @@ This document tracks the status of all specification documents in the project.
 | 090 | Comprehensive Rustdoc Documentation | ⬜ Planned |
 | 100 | Complete Stub Implementations | ⬜ Planned |
 | 110 | Comprehensive Ansible Feature Tests | ⬜ Planned |
+| 130 | Boolean Value Parsing Fix | ⬜ Planned |
 
 ## Modular Architecture Impact
 

@@ -811,7 +811,7 @@ impl<'a> PlaybookParser<'a> {
         let task_name = raw_task.name.as_deref().unwrap_or("unnamed");
         Err(ParseError::InvalidStructure {
             message: format!("No valid module found in task '{}'. Available keys: {:?}. Known modules: include_tasks={}, import_tasks={}", 
-                task_name, available_modules, 
+                task_name, available_modules,
                 module_keys.contains(&"include_tasks"), 
                 module_keys.contains(&"import_tasks")),
         })

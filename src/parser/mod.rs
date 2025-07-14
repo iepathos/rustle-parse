@@ -93,6 +93,16 @@ impl Parser {
             user: None,
             vars: HashMap::new(),
             groups: vec!["all".to_string()],
+            connection: Some("local".to_string()),
+            ssh_private_key_file: None,
+            ssh_common_args: None,
+            ssh_extra_args: None,
+            ssh_pipelining: None,
+            connection_timeout: None,
+            ansible_become: None,
+            become_method: None,
+            become_user: None,
+            become_flags: None,
         };
         hosts.insert("localhost".to_string(), localhost);
 
@@ -110,6 +120,15 @@ impl Parser {
             groups,
             variables: HashMap::new(),
         }
+    }
+
+    pub fn filter_inventory(
+        &self,
+        inventory: &mut ParsedInventory,
+        limit_pattern: &str,
+    ) -> Result<(), ParseError> {
+        let parser = InventoryParser::new(&self.template_engine, &self.extra_vars);
+        parser.filter_inventory(inventory, limit_pattern)
     }
 }
 

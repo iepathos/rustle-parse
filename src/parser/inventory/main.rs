@@ -4,6 +4,7 @@ use crate::parser::inventory::validation::InventoryValidator;
 use crate::parser::inventory::variables::VariableInheritanceResolver;
 use crate::parser::template::TemplateEngine;
 use crate::types::parsed::*;
+use regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -69,6 +70,120 @@ impl<'a> InventoryParser<'a> {
                 } else {
                     // Default to INI for simple host lists
                     self.parse_ini_inventory(&content).await
+                }
+            }
+        }
+    }
+
+    /// Filter inventory based on a limit pattern (similar to Ansible's --limit)
+    pub fn filter_inventory(
+        &self,
+        inventory: &mut ParsedInventory,
+        limit_pattern: &str,
+    ) -> Result<(), ParseError> {
+        // Parse comma-separated patterns
+        let patterns: Vec<&str> = limit_pattern.split(',').map(|s| s.trim()).collect();
+
+        let mut matching_hosts = std::collections::HashSet::new();
+
+        for pattern in patterns {
+            // Check if pattern is a group name (prefixed with ':' or just a group name)
+            let is_group_pattern = pattern.starts_with(':');
+            let pattern_name = if is_group_pattern {
+                &pattern[1..]
+            } else {
+                pattern
+            };
+
+            if is_group_pattern || inventory.groups.contains_key(pattern_name) {
+                // It's a group pattern - add all hosts from the group
+                if let Some(group) = inventory.groups.get(pattern_name) {
+                    for host in &group.hosts {
+                        matching_hosts.insert(host.clone());
+                    }
+                    // Also add hosts from child groups
+                    Self::collect_hosts_from_children(
+                        &inventory.groups,
+                        pattern_name,
+                        &mut matching_hosts,
+                    );
+                }
+            } else if pattern.contains('[') && pattern.contains(']') {
+                // It's a host pattern with ranges - expand it
+                match self.expand_host_pattern(pattern) {
+                    Ok(expanded_hosts) => {
+                        for host in expanded_hosts {
+                            if inventory.hosts.contains_key(&host) {
+                                matching_hosts.insert(host);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // If pattern expansion fails, treat as literal
+                        if inventory.hosts.contains_key(pattern) {
+                            matching_hosts.insert(pattern.to_string());
+                        }
+                    }
+                }
+            } else {
+                // It's a literal host name or glob pattern
+                if pattern.contains('*') || pattern.contains('?') {
+                    // Simple glob pattern matching
+                    let regex_pattern = pattern.replace("*", ".*").replace("?", ".");
+                    if let Ok(re) = regex::Regex::new(&format!("^{regex_pattern}$")) {
+                        for host_name in inventory.hosts.keys() {
+                            if re.is_match(host_name) {
+                                matching_hosts.insert(host_name.clone());
+                            }
+                        }
+                    }
+                } else {
+                    // Literal host name
+                    if inventory.hosts.contains_key(pattern) {
+                        matching_hosts.insert(pattern.to_string());
+                    }
+                }
+            }
+        }
+
+        // Filter hosts to only include matching ones
+        inventory
+            .hosts
+            .retain(|host_name, _| matching_hosts.contains(host_name));
+
+        // Update groups to only include hosts that still exist
+        for group in inventory.groups.values_mut() {
+            group.hosts.retain(|host| matching_hosts.contains(host));
+        }
+
+        // Remove empty groups (except 'all')
+        inventory.groups.retain(|name, group| {
+            name == "all" || !group.hosts.is_empty() || !group.children.is_empty()
+        });
+
+        // Update the 'all' group to reflect the filtered hosts
+        if let Some(all_group) = inventory.groups.get_mut("all") {
+            all_group.hosts = matching_hosts.into_iter().collect();
+            all_group.hosts.sort();
+        }
+
+        Ok(())
+    }
+
+    /// Recursively collect hosts from child groups
+    fn collect_hosts_from_children(
+        groups: &HashMap<String, ParsedGroup>,
+        group_name: &str,
+        matching_hosts: &mut std::collections::HashSet<String>,
+    ) {
+        if let Some(group) = groups.get(group_name) {
+            for child_name in &group.children {
+                if let Some(child_group) = groups.get(child_name) {
+                    for host in &child_group.hosts {
+                        matching_hosts.insert(host.clone());
+                    }
+                    // Recurse into child's children
+                    Self::collect_hosts_from_children(groups, child_name, matching_hosts);
                 }
             }
         }
@@ -227,15 +342,25 @@ impl<'a> InventoryParser<'a> {
                             _ => HashMap::new(),
                         };
 
-                        let (address, port, user) = self.extract_connection_info(&host_vars);
+                        let conn = self.extract_connection_info(&host_vars);
 
                         let host = ParsedHost {
                             name: hostname.to_string(),
-                            address,
-                            port,
-                            user,
+                            address: conn.address,
+                            port: conn.port,
+                            user: conn.user,
                             vars: host_vars,
                             groups: vec![group_name.to_string()],
+                            connection: conn.connection,
+                            ssh_private_key_file: conn.ssh_private_key_file,
+                            ssh_common_args: conn.ssh_common_args,
+                            ssh_extra_args: conn.ssh_extra_args,
+                            ssh_pipelining: conn.ssh_pipelining,
+                            connection_timeout: conn.connection_timeout,
+                            ansible_become: conn.ansible_become,
+                            become_method: conn.become_method,
+                            become_user: conn.become_user,
+                            become_flags: conn.become_flags,
                         };
 
                         hosts.insert(hostname.to_string(), host);
@@ -299,16 +424,25 @@ impl<'a> InventoryParser<'a> {
                                         .iter()
                                         .map(|(k, v)| (k.clone(), v.clone()))
                                         .collect();
-                                    let (address, port, user) =
-                                        self.extract_connection_info(&vars_map);
+                                    let conn = self.extract_connection_info(&vars_map);
 
                                     let host = ParsedHost {
                                         name: hostname.clone(),
-                                        address,
-                                        port,
-                                        user,
+                                        address: conn.address,
+                                        port: conn.port,
+                                        user: conn.user,
                                         vars: vars_map,
                                         groups: Vec::new(), // Will be filled when processing groups
+                                        connection: conn.connection,
+                                        ssh_private_key_file: conn.ssh_private_key_file,
+                                        ssh_common_args: conn.ssh_common_args,
+                                        ssh_extra_args: conn.ssh_extra_args,
+                                        ssh_pipelining: conn.ssh_pipelining,
+                                        connection_timeout: conn.connection_timeout,
+                                        ansible_become: conn.ansible_become,
+                                        become_method: conn.become_method,
+                                        become_user: conn.become_user,
+                                        become_flags: conn.become_flags,
                                     };
 
                                     hosts.insert(hostname.clone(), host);
@@ -370,6 +504,16 @@ impl<'a> InventoryParser<'a> {
                                     user: None,
                                     vars: HashMap::new(),
                                     groups: vec![key.clone()],
+                                    connection: None,
+                                    ssh_private_key_file: None,
+                                    ssh_common_args: None,
+                                    ssh_extra_args: None,
+                                    ssh_pipelining: None,
+                                    connection_timeout: None,
+                                    ansible_become: None,
+                                    become_method: None,
+                                    become_user: None,
+                                    become_flags: None,
                                 };
                                 hosts.insert(hostname.clone(), host);
                             }
@@ -475,7 +619,7 @@ impl<'a> InventoryParser<'a> {
     fn extract_connection_info(
         &self,
         vars: &HashMap<String, serde_json::Value>,
-    ) -> (Option<String>, Option<u16>, Option<String>) {
+    ) -> ParsedHostConnection {
         let address = vars
             .get("ansible_host")
             .or_else(|| vars.get("ansible_ssh_host"))
@@ -491,10 +635,72 @@ impl<'a> InventoryParser<'a> {
         let user = vars
             .get("ansible_user")
             .or_else(|| vars.get("ansible_ssh_user"))
+            .or_else(|| vars.get("ansible_ssh_user_name"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        (address, port, user)
+        // Connection settings
+        let connection = vars
+            .get("ansible_connection")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let ssh_private_key_file = vars
+            .get("ansible_ssh_private_key_file")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let ssh_common_args = vars
+            .get("ansible_ssh_common_args")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let ssh_extra_args = vars
+            .get("ansible_ssh_extra_args")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let ssh_pipelining = vars.get("ansible_ssh_pipelining").and_then(|v| v.as_bool());
+
+        let connection_timeout = vars
+            .get("ansible_timeout")
+            .or_else(|| vars.get("ansible_connection_timeout"))
+            .and_then(|v| v.as_u64())
+            .map(|t| t as u32);
+
+        // Privilege escalation
+        let ansible_become = vars.get("ansible_become").and_then(|v| v.as_bool());
+
+        let become_method = vars
+            .get("ansible_become_method")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let become_user = vars
+            .get("ansible_become_user")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let become_flags = vars
+            .get("ansible_become_flags")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        ParsedHostConnection {
+            address,
+            port,
+            user,
+            connection,
+            ssh_private_key_file,
+            ssh_common_args,
+            ssh_extra_args,
+            ssh_pipelining,
+            connection_timeout,
+            ansible_become,
+            become_method,
+            become_user,
+            become_flags,
+        }
     }
 }
 

@@ -65,6 +65,7 @@ pub struct ParsedPlaybook {
     pub variables: HashMap<String, Value>,
     pub facts_required: bool,
     pub vault_ids: Vec<String>,
+    pub inventory: ParsedInventory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +193,20 @@ pub struct ParsedHost {
     pub user: Option<String>,
     pub vars: HashMap<String, Value>,
     pub groups: Vec<String>,
+
+    // Connection settings
+    pub connection: Option<String>, // ssh, local, docker, etc.
+    pub ssh_private_key_file: Option<String>,
+    pub ssh_common_args: Option<String>,
+    pub ssh_extra_args: Option<String>,
+    pub ssh_pipelining: Option<bool>,
+    pub connection_timeout: Option<u32>,
+
+    // Privilege escalation
+    pub ansible_become: Option<bool>,
+    pub become_method: Option<String>, // sudo, su, pbrun, etc.
+    pub become_user: Option<String>,
+    pub become_flags: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,4 +215,21 @@ pub struct ParsedGroup {
     pub hosts: Vec<String>,
     pub children: Vec<String>,
     pub vars: HashMap<String, Value>,
+}
+
+/// Temporary struct for extracting all connection info from inventory
+pub struct ParsedHostConnection {
+    pub address: Option<String>,
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    pub connection: Option<String>,
+    pub ssh_private_key_file: Option<String>,
+    pub ssh_common_args: Option<String>,
+    pub ssh_extra_args: Option<String>,
+    pub ssh_pipelining: Option<bool>,
+    pub connection_timeout: Option<u32>,
+    pub ansible_become: Option<bool>,
+    pub become_method: Option<String>,
+    pub become_user: Option<String>,
+    pub become_flags: Option<String>,
 }

@@ -286,7 +286,7 @@ impl<'a> IniInventoryParser<'a> {
                     return Err(ParseError::DuplicateHost { host: hostname });
                 }
 
-                let (address, port, user) = self.extract_connection_info(&variables);
+                let conn = self.extract_connection_info(&variables);
                 let entry_vars: HashMap<String, serde_json::Value> = variables
                     .iter()
                     .map(|(k, v)| (k.clone(), self.parse_ini_value(v)))
@@ -294,14 +294,48 @@ impl<'a> IniInventoryParser<'a> {
 
                 if let Some(existing_host) = inventory.hosts.get_mut(&hostname) {
                     // Merge with existing host, preserving connection info if not already set
-                    if existing_host.address.is_none() && address.is_some() {
-                        existing_host.address = address;
+                    if existing_host.address.is_none() && conn.address.is_some() {
+                        existing_host.address = conn.address;
                     }
-                    if existing_host.port.is_none() && port.is_some() {
-                        existing_host.port = port;
+                    if existing_host.port.is_none() && conn.port.is_some() {
+                        existing_host.port = conn.port;
                     }
-                    if existing_host.user.is_none() && user.is_some() {
-                        existing_host.user = user;
+                    if existing_host.user.is_none() && conn.user.is_some() {
+                        existing_host.user = conn.user;
+                    }
+                    if existing_host.connection.is_none() && conn.connection.is_some() {
+                        existing_host.connection = conn.connection;
+                    }
+                    if existing_host.ssh_private_key_file.is_none()
+                        && conn.ssh_private_key_file.is_some()
+                    {
+                        existing_host.ssh_private_key_file = conn.ssh_private_key_file;
+                    }
+                    if existing_host.ssh_common_args.is_none() && conn.ssh_common_args.is_some() {
+                        existing_host.ssh_common_args = conn.ssh_common_args;
+                    }
+                    if existing_host.ssh_extra_args.is_none() && conn.ssh_extra_args.is_some() {
+                        existing_host.ssh_extra_args = conn.ssh_extra_args;
+                    }
+                    if existing_host.ssh_pipelining.is_none() && conn.ssh_pipelining.is_some() {
+                        existing_host.ssh_pipelining = conn.ssh_pipelining;
+                    }
+                    if existing_host.connection_timeout.is_none()
+                        && conn.connection_timeout.is_some()
+                    {
+                        existing_host.connection_timeout = conn.connection_timeout;
+                    }
+                    if existing_host.ansible_become.is_none() && conn.ansible_become.is_some() {
+                        existing_host.ansible_become = conn.ansible_become;
+                    }
+                    if existing_host.become_method.is_none() && conn.become_method.is_some() {
+                        existing_host.become_method = conn.become_method;
+                    }
+                    if existing_host.become_user.is_none() && conn.become_user.is_some() {
+                        existing_host.become_user = conn.become_user;
+                    }
+                    if existing_host.become_flags.is_none() && conn.become_flags.is_some() {
+                        existing_host.become_flags = conn.become_flags;
                     }
 
                     // Merge variables (existing variables take precedence)
@@ -317,11 +351,21 @@ impl<'a> IniInventoryParser<'a> {
                     // Create new host
                     let host = ParsedHost {
                         name: hostname.clone(),
-                        address,
-                        port,
-                        user,
+                        address: conn.address,
+                        port: conn.port,
+                        user: conn.user,
                         vars: entry_vars,
                         groups: vec![group_name.clone()],
+                        connection: conn.connection,
+                        ssh_private_key_file: conn.ssh_private_key_file,
+                        ssh_common_args: conn.ssh_common_args,
+                        ssh_extra_args: conn.ssh_extra_args,
+                        ssh_pipelining: conn.ssh_pipelining,
+                        connection_timeout: conn.connection_timeout,
+                        ansible_become: conn.ansible_become,
+                        become_method: conn.become_method,
+                        become_user: conn.become_user,
+                        become_flags: conn.become_flags,
                     };
                     inventory.hosts.insert(hostname.clone(), host);
                 }
@@ -595,10 +639,7 @@ impl<'a> IniInventoryParser<'a> {
     }
 
     /// Extract connection information from variables
-    fn extract_connection_info(
-        &self,
-        vars: &HashMap<String, String>,
-    ) -> (Option<String>, Option<u16>, Option<String>) {
+    fn extract_connection_info(&self, vars: &HashMap<String, String>) -> ParsedHostConnection {
         let address = vars
             .get("ansible_host")
             .or_else(|| vars.get("ansible_ssh_host"))
@@ -615,7 +656,50 @@ impl<'a> IniInventoryParser<'a> {
             .or_else(|| vars.get("ansible_ssh_user_name"))
             .cloned();
 
-        (address, port, user)
+        // Connection settings
+        let connection = vars.get("ansible_connection").cloned();
+        let ssh_private_key_file = vars.get("ansible_ssh_private_key_file").cloned();
+        let ssh_common_args = vars.get("ansible_ssh_common_args").cloned();
+        let ssh_extra_args = vars.get("ansible_ssh_extra_args").cloned();
+        let ssh_pipelining =
+            vars.get("ansible_ssh_pipelining")
+                .and_then(|s| match s.to_lowercase().as_str() {
+                    "true" | "yes" | "on" | "1" => Some(true),
+                    "false" | "no" | "off" | "0" => Some(false),
+                    _ => None,
+                });
+        let connection_timeout = vars
+            .get("ansible_timeout")
+            .or_else(|| vars.get("ansible_connection_timeout"))
+            .and_then(|s| s.parse::<u32>().ok());
+
+        // Privilege escalation
+        let ansible_become =
+            vars.get("ansible_become")
+                .and_then(|s| match s.to_lowercase().as_str() {
+                    "true" | "yes" | "on" | "1" => Some(true),
+                    "false" | "no" | "off" | "0" => Some(false),
+                    _ => None,
+                });
+        let become_method = vars.get("ansible_become_method").cloned();
+        let become_user = vars.get("ansible_become_user").cloned();
+        let become_flags = vars.get("ansible_become_flags").cloned();
+
+        ParsedHostConnection {
+            address,
+            port,
+            user,
+            connection,
+            ssh_private_key_file,
+            ssh_common_args,
+            ssh_extra_args,
+            ssh_pipelining,
+            connection_timeout,
+            ansible_become,
+            become_method,
+            become_user,
+            become_flags,
+        }
     }
 
     /// Ensure the "all" group exists and contains all hosts

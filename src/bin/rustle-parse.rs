@@ -53,6 +53,10 @@ struct Cli {
     /// Parse but don't write output
     #[arg(long)]
     dry_run: bool,
+
+    /// Limit execution to specific hosts or groups (comma-separated patterns)
+    #[arg(short = 'l', long, value_name = "PATTERN")]
+    limit: Option<String>,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -116,7 +120,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse playbook
     let playbook_path = get_playbook_path(&cli)?;
-    let playbook = parser.parse_playbook(&playbook_path).await?;
+    let mut playbook = parser.parse_playbook(&playbook_path).await?;
+
+    // Parse inventory and add it to the playbook
+    let mut inventory = if let Some(inventory_path) = &cli.inventory {
+        parser.parse_inventory(inventory_path).await?
+    } else {
+        // Use implicit localhost inventory when no inventory file is provided
+        parser.create_implicit_inventory()
+    };
+
+    // Apply limit filter if specified
+    if let Some(limit_pattern) = &cli.limit {
+        parser.filter_inventory(&mut inventory, limit_pattern)?;
+
+        // Check if any hosts remain after filtering
+        if inventory.hosts.is_empty() {
+            error!("No hosts matched the limit pattern: {}", limit_pattern);
+            std::process::exit(1);
+        }
+    }
+
+    // Add inventory to playbook structure
+    playbook.inventory = inventory;
 
     if cli.list_tasks {
         handle_list_tasks(&playbook);
@@ -263,12 +289,23 @@ async fn handle_list_hosts(
     parser: &RustleParser,
     cli: &Cli,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let inventory = if let Some(inventory_path) = &cli.inventory {
+    let mut inventory = if let Some(inventory_path) = &cli.inventory {
         parser.parse_inventory(inventory_path).await?
     } else {
         // Use implicit localhost inventory when no inventory file is provided
         parser.create_implicit_inventory()
     };
+
+    // Apply limit filter if specified
+    if let Some(limit_pattern) = &cli.limit {
+        parser.filter_inventory(&mut inventory, limit_pattern)?;
+
+        // Check if any hosts remain after filtering
+        if inventory.hosts.is_empty() {
+            error!("No hosts matched the limit pattern: {}", limit_pattern);
+            std::process::exit(1);
+        }
+    }
 
     for (hostname, host) in &inventory.hosts {
         println!("{hostname}:");
@@ -456,6 +493,7 @@ mod tests {
             list_hosts: false,
             verbose: false,
             dry_run: false,
+            limit: None,
         };
 
         let result = get_playbook_path(&cli).unwrap();
@@ -476,6 +514,7 @@ mod tests {
             list_hosts: false,
             verbose: false,
             dry_run: false,
+            limit: None,
         };
 
         let result = get_playbook_path(&cli);
@@ -502,6 +541,7 @@ mod tests {
             list_hosts: false,
             verbose: false,
             dry_run: false,
+            limit: None,
         };
 
         let result = get_playbook_path(&cli);

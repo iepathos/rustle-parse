@@ -385,6 +385,16 @@ mod tests {
                     vars
                 },
                 groups: vec!["webservers".to_string(), "production".to_string()],
+                connection: None,
+                ssh_private_key_file: None,
+                ssh_common_args: None,
+                ssh_extra_args: None,
+                ssh_pipelining: None,
+                connection_timeout: None,
+                ansible_become: None,
+                become_method: None,
+                become_user: None,
+                become_flags: None,
             },
         );
 
@@ -397,6 +407,16 @@ mod tests {
                 user: None,
                 vars: HashMap::new(),
                 groups: vec!["webservers".to_string(), "production".to_string()],
+                connection: None,
+                ssh_private_key_file: None,
+                ssh_common_args: None,
+                ssh_extra_args: None,
+                ssh_pipelining: None,
+                connection_timeout: None,
+                ansible_become: None,
+                become_method: None,
+                become_user: None,
+                become_flags: None,
             },
         );
 

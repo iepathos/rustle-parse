@@ -97,6 +97,11 @@ impl<'a> PlaybookParser<'a> {
             variables: playbook_vars,
             facts_required,
             vault_ids,
+            inventory: ParsedInventory {
+                hosts: HashMap::new(),
+                groups: HashMap::new(),
+                variables: HashMap::new(),
+            },
         })
     }
 
@@ -199,6 +204,11 @@ impl<'a> PlaybookParser<'a> {
             variables: playbook_vars,
             facts_required,
             vault_ids,
+            inventory: ParsedInventory {
+                hosts: HashMap::new(),
+                groups: HashMap::new(),
+                variables: HashMap::new(),
+            },
         })
     }
 
